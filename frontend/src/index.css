@@ -526,6 +526,11 @@ h4.sec{
   -moz-appearance:textfield;appearance:textfield;
 }
 .stp .num::-webkit-inner-spin-button{display:none}
+/* compact steppers for the history edit rows (workout detail sheet) — two per row plus the
+   done check and delete button have to fit a phone-width sheet */
+.editrow .stp button{width:28px;height:36px;font-size:13px}
+.editrow .stp .num{font-size:15px}
+.editrow .stp .val i{font-size:10px}
 
 /* --- slider --- */
 .sld{position:relative;height:32px;display:flex;align-items:center;cursor:pointer;touch-action:none}

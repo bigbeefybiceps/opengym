@@ -12,7 +12,7 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, Row, TextField, MultiSelectRow, NumberField, Check } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, Row, TextField, MultiSelectRow, Check } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { exerciseMuscleSnapshot, loadOfWorkouts, MUSCLES, MUSCLE_NAME, normalizeMuscleGroups, hasExplicitMuscleMetadata } from './lib/muscles.js'
@@ -965,9 +965,9 @@ function WorkoutDetail({ w, close, startEditing }) {
   const removeSet = (ei, si) => mutWorkout(rec => { rec.entries[ei].sets.splice(si, 1) })
   const editFields = e => {
     const m = modeOf({ ...(e.target || {}), id: e.id })
-    if (m === 'cardio') return [{ f: 'min', hd: t('min'), dec: false }, { f: 'speed', hd: t('km/h'), dec: true }]
-    if (m === 'time') return [{ f: 'sec', hd: t('sec'), dec: false }, { f: 'w', hd: st.unit, dec: true }]
-    return [{ f: 'w', hd: st.unit, dec: true }, { f: 'r', hd: t('reps'), dec: false }]
+    if (m === 'cardio') return [{ f: 'min', hd: t('min'), dec: false, step: 1 }, { f: 'speed', hd: t('km/h'), dec: true, step: 0.5 }]
+    if (m === 'time') return [{ f: 'sec', hd: t('sec'), dec: false, step: 5 }, { f: 'w', hd: st.unit, dec: true, step: 2.5 }]
+    return [{ f: 'w', hd: st.unit, dec: true, step: 2.5 }, { f: 'r', hd: t('reps'), dec: false, step: 1 }]
   }
   return <>
     <h3>{wk.name}</h3>
@@ -975,22 +975,23 @@ function WorkoutDetail({ w, close, startEditing }) {
     {wk.entries.map((e, ei) => {
       const ex = EXIDX[e.id]
       return <div key={ei} className="row" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
-        {ex && <Thumb ex={ex} />}
-        <div className="grow"><div className="tt capitalize" style={{ fontWeight: 600 }}>{ex ? exerciseNameFor(ex) : (e.n || e.id)} {wk.prs && wk.prs.includes(e.id) && <span className="pr"><Icon name="trophy" />PR</span>}</div>
+        {/* The thumbnail goes while editing — on a phone its column is exactly the width the
+            delete button needs to stay on screen. */}
+        {ex && !editing && <Thumb ex={ex} />}
+        <div className="grow" style={{ minWidth: 0 }}><div className="tt capitalize" style={{ fontWeight: 600 }}>{ex ? exerciseNameFor(ex) : (e.n || e.id)} {wk.prs && wk.prs.includes(e.id) && <span className="pr"><Icon name="trophy" />PR</span>}</div>
           {editing ? e.sets.map((s, si) => (
-            <div key={si} className="row" style={{ gap: 8, margin: '5px 0', alignItems: 'center' }}>
-              <span className="small dim" style={{ width: 14, textAlign: 'right' }}>{si + 1}</span>
+            // The same Stepper control every config sheet uses — a bare input here rendered
+            // unstyled (white-on-white) in mobile Safari, which only styles .stp .num.
+            <div key={si} className="row editrow" style={{ gap: 6, margin: '6px 0', alignItems: 'center' }}>
+              <span className="small dim" style={{ width: 14, textAlign: 'right', flex: 'none' }}>{si + 1}</span>
               {editFields(e).map(col => (
-                <span key={col.f} className="row small" style={{ gap: 4, alignItems: 'center' }}>
-                  <span className="input" style={{ width: 62, padding: '5px 8px', textAlign: 'center' }}>
-                    <NumberField decimal={col.dec} value={s[col.f] ?? ''} onChange={v => setSetField(ei, si, col.f, v ?? 0)} />
-                  </span>
-                  <span className="dim">{col.hd}</span>
-                </span>
+                <div key={col.f} style={{ flex: 1, minWidth: 0 }}>
+                  <Stepper value={s[col.f] ?? 0} step={col.step} decimal={col.dec} unit={col.hd}
+                    onChange={v => setSetField(ei, si, col.f, v ?? 0)} />
+                </div>
               ))}
-              <span style={{ flex: 1 }} />
               <Check checked={!!s.done} onChange={() => toggleSetDone(ei, si)} />
-              <button className="iconbtn" style={{ width: 30, height: 28, fontSize: 13, color: 'var(--red)' }} aria-label={t('Remove set')}
+              <button className="iconbtn" style={{ width: 30, height: 28, fontSize: 13, color: 'var(--red)', flex: 'none' }} aria-label={t('Remove set')}
                 onClick={() => removeSet(ei, si)}><Icon name="xmark" /></button>
             </div>
           )) : <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div>}
