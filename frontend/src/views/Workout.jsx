@@ -177,7 +177,17 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       {(ex.tg || ex.bp) && <span className="tag">{t(ex.tg || ex.bp)}</span>}
       {ex.eq && <span className="tag">{t(ex.eq)}</span>}
       {best > 0 && <span className="tag nocap">{t('Best:')} {fmtNum(best)} {S.unit}</span>}
+      {/* The plan's prescribed effort per working set (e.g. "RIR 1 · 0": first set 1 in
+          reserve, last set to failure) — what the program asks for, not what you log. */}
+      {mode === 'reps' && Array.isArray(cfg.rir) && cfg.rir.length > 0 &&
+        <span className="tag nocap" style={{ color: 'var(--acc)' }}><Icon name="target" />{'RIR ' + cfg.rir.join(' · ')}</span>}
     </div>
+    {/* A periodised plan's block-2 intensity technique for the last working set, shown only
+        while block 2 is selected (Settings → During a workout → Training block). */}
+    {S.block === 2 && cfg.b2 && <div className="exnote" style={{ color: 'var(--acc)' }}>
+      <Icon name="bolt" style={{ fontSize: 13, marginRight: 5, verticalAlign: '-2px' }} />
+      {t('Block 2 — last set: {0}', cfg.b2)}
+    </div>}
     {/* Three notes can apply to one exercise and they are not interchangeable, so each keeps its
         own line and its own icon: the plan's instruction (cfg.note, from the routine), the
         standing fact about the movement (exNotes), and the message you pinned to yourself last

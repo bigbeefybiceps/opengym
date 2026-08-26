@@ -158,6 +158,18 @@ export default function Settings() {
           options={[{ value: 'none', label: t('Off') }, { value: 'rir', label: t('RIR') }, { value: 'rpe', label: t('RPE') }]}
           value={effortOf(S)} onChange={v => update(s => { s.effort = v; delete s.showRir })} />
       </Row>
+      <Row icon="scale" iconTint="var(--teal)" title={t('Weigh-in before workouts')}
+        subtitle={S.askWeighIn === false ? t('Workouts start right away — log weigh-ins from Home.') : null}>
+        <Switch checked={S.askWeighIn !== false} onChange={v => update(s => { s.askWeighIn = v })} />
+      </Row>
+      {/* Which block of a periodised plan is running. Exercises whose plan carries a block-2
+          last-set intensity technique (cfg.b2) show it in the workout while 2 is selected. */}
+      <Row icon="bolt" iconTint="var(--orange)" title={t('Training block')}
+        subtitle={S.block === 2 ? t('Last-set intensity techniques are shown in the workout.') : null}>
+        <Segmented className="seg-inline"
+          options={[{ value: 1, label: t('Block 1') }, { value: 2, label: t('Block 2') }]}
+          value={S.block === 2 ? 2 : 1} onChange={v => update(s => { s.block = v })} />
+      </Row>
     </Section>
 
     {(user || MOBILE) && <NotificationsCard S={S} update={update} toast={toast} />}

@@ -12,7 +12,7 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, Row, TextField, MultiSelectRow } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, Row, TextField, MultiSelectRow, NumberField, Check } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { exerciseMuscleSnapshot, loadOfWorkouts, MUSCLES, MUSCLE_NAME, normalizeMuscleGroups, hasExplicitMuscleMetadata } from './lib/muscles.js'
@@ -614,6 +614,10 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
       const typed = Math.max(1, Math.round(c.reps) || 10)
       const reps = perSide ? Math.ceil(typed / 2) * 2 : typed
       const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...flags, ...(perSide ? { side: true } : {}), ...prog, ...withNote, ...withWarmups }
+      // Imported-plan extras with no editor UI of their own (target RIR per set, block-2
+      // intensity technique) survive a round-trip through this sheet instead of being dropped.
+      if (Array.isArray(c.rir) && c.rir.length) out.rir = c.rir
+      if (c.b2) out.b2 = c.b2
       if (policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
       // A ceiling below the working reps would tell you to add a set on day one.
       if (bw && !(out.weight > 0) && c.repsMax > 0) out.repsMax = Math.max(reps, Math.round(c.repsMax))
@@ -939,20 +943,65 @@ function WorkoutDetail({ w, close }) {
       if (text) rec.note = text; else delete rec.note
     })
   }, [])
+  // Edits go through the store, so render from the live record — the `w` prop is a snapshot
+  // from before the sheet opened and would show stale numbers after the first change.
+  const wk = st.workouts.find(x => x.id === w.id) || w
+  const [editing, setEditing] = useState(false)
+  // Any set edit re-derives the totals the rest of the app reads (volume, top weight), so a
+  // corrected typo flows through to stats and progression the same as if it was logged right.
+  const mutWorkout = fn => update(s => {
+    const rec = s.workouts.find(x => x.id === w.id)
+    if (!rec) return
+    fn(rec)
+    rec.entries = rec.entries.filter(e => e.sets.length)
+    rec.entries.forEach(e => {
+      const top = Math.max(0, ...e.sets.filter(x => x.done).map(x => x.w || 0))
+      e.topW = top > 0 ? top : null
+    })
+    rec.vol = workoutVolume(rec)
+  })
+  const setSetField = (ei, si, f, v) => mutWorkout(rec => { rec.entries[ei].sets[si][f] = v })
+  const toggleSetDone = (ei, si) => mutWorkout(rec => { const s2 = rec.entries[ei].sets[si]; s2.done = !s2.done })
+  const removeSet = (ei, si) => mutWorkout(rec => { rec.entries[ei].sets.splice(si, 1) })
+  const editFields = e => {
+    const m = modeOf({ ...(e.target || {}), id: e.id })
+    if (m === 'cardio') return [{ f: 'min', hd: t('min'), dec: false }, { f: 'speed', hd: t('km/h'), dec: true }]
+    if (m === 'time') return [{ f: 'sec', hd: t('sec'), dec: false }, { f: 'w', hd: st.unit, dec: true }]
+    return [{ f: 'w', hd: st.unit, dec: true }, { f: 'r', hd: t('reps'), dec: false }]
+  }
   return <>
-    <h3>{w.name}</h3>
-    <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(w.vol, st.unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
-    {w.entries.map((e, i) => {
+    <h3>{wk.name}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(wk.d, true), ...durPart(wk.end - wk.start), fmtVol(wk.vol, st.unit), ...(wk.bw ? [fmtNum(wk.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
+    {wk.entries.map((e, ei) => {
       const ex = EXIDX[e.id]
-      return <div key={i} className="row" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+      return <div key={ei} className="row" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
         {ex && <Thumb ex={ex} />}
-        <div className="grow"><div className="tt capitalize" style={{ fontWeight: 600 }}>{ex ? exerciseNameFor(ex) : (e.n || e.id)} {w.prs && w.prs.includes(e.id) && <span className="pr"><Icon name="trophy" />PR</span>}</div>
-          <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div>
+        <div className="grow"><div className="tt capitalize" style={{ fontWeight: 600 }}>{ex ? exerciseNameFor(ex) : (e.n || e.id)} {wk.prs && wk.prs.includes(e.id) && <span className="pr"><Icon name="trophy" />PR</span>}</div>
+          {editing ? e.sets.map((s, si) => (
+            <div key={si} className="row" style={{ gap: 8, margin: '5px 0', alignItems: 'center' }}>
+              <span className="small dim" style={{ width: 14, textAlign: 'right' }}>{si + 1}</span>
+              {editFields(e).map(col => (
+                <span key={col.f} className="row small" style={{ gap: 4, alignItems: 'center' }}>
+                  <span className="input" style={{ width: 62, padding: '5px 8px', textAlign: 'center' }}>
+                    <NumberField decimal={col.dec} value={s[col.f] ?? ''} onChange={v => setSetField(ei, si, col.f, v ?? 0)} />
+                  </span>
+                  <span className="dim">{col.hd}</span>
+                </span>
+              ))}
+              <span style={{ flex: 1 }} />
+              <Check checked={!!s.done} onChange={() => toggleSetDone(ei, si)} />
+              <button className="iconbtn" style={{ width: 30, height: 28, fontSize: 13, color: 'var(--red)' }} aria-label={t('Remove set')}
+                onClick={() => removeSet(ei, si)}><Icon name="xmark" /></button>
+            </div>
+          )) : <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div>}
           {e.note && <div className="small dim" style={{ marginTop: 3 }}>
             {e.notePin && <Icon name="flag" style={{ fontSize: 12, marginRight: 4, verticalAlign: '-1px', color: 'var(--yellow)' }} />}{e.note}
           </div>}</div>
       </div>
     })}
+    <Button size="sm" icon={editing ? 'check' : 'pencil'} variant={editing ? 'tinted' : undefined}
+      onClick={() => setEditing(v => !v)}>{editing ? t('Done editing') : t('Edit sets')}</Button>
+    <div style={{ height: 12 }} />
     <div className="small muted" style={{ margin: '4px 0 6px' }}>{t('Session note')}</div>
     <textarea className="input" rows={2} maxLength={NOTE_MAX} value={note}
       placeholder={t('How the session went as a whole.')}
@@ -1020,6 +1069,10 @@ export function WorkoutRow({ w, onClick }) {
 
 /* ============================ workout lifecycle ============================ */
 export function startFlow(routineId) {
+  // The check-in can be turned off (Settings → During a workout) — the session then starts
+  // immediately and records the last known body weight instead of asking for a fresh one.
+  const st = S()
+  if (st.askWeighIn === false) { beginWorkout(routineId, lastBW(st)?.w ?? null); return }
   bwSheet({ required: true, onDone: bw => beginWorkout(routineId, bw) })
 }
 export function beginWorkout(routineId, bw) {
