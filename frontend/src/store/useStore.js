@@ -22,6 +22,10 @@ export const DEF = {
   // training block of a periodised plan is running — routines can carry per-exercise block-2
   // intensity techniques (cfg.b2) that only apply while block 2 is selected.
   askWeighIn: true, block: 1,
+  // programStart anchors the block plan's week count (lib/block-plan.js); null falls back to
+  // the first logged workout. blockNudge remembers a dismissed switch-block reminder's
+  // phaseKey so it stays away until the next switch is actually due.
+  programStart: null, blockNudge: null,
   // Equipment profiles (issue: filter Library/picker/routines by what you actually own —
   // e.g. "Home" vs "Gym" — building on the session-only equipment filter from issue #6).
   equipProfiles: [], activeEquipId: null, equipFilterOn: false,

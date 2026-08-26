@@ -9,11 +9,13 @@ import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
+import { blockPlanStatus } from '../lib/block-plan.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
+  const update = useStore(s => s.update)
   const user = useStore(s => s.user)
   const [weekOffset, setWeekOffset] = useState(0)
 
@@ -47,6 +49,13 @@ export default function Home() {
 
   // today's session shown right under the week strip
   const onToday = () => { if (S.active) nav('/workout'); else if (routine) startFlow(routine.id); else dayOverrideSheet(todayISO()) }
+
+  // Reminder to switch training blocks when the plan's week count says a switch is due.
+  // Dismissing it ("Not now") silences it for this phase only — it comes back for the next
+  // switch, which is the whole point of a reminder tied to a 12-week cycle.
+  const plan = blockPlanStatus(S, todayISO())
+  const curBlock = S.block === 2 ? 2 : 1
+  const blockNudge = plan && plan.suggested !== curBlock && S.blockNudge !== plan.phaseKey ? plan : null
 
   return <div className="narrow">
     <div className="hdr">
@@ -85,6 +94,25 @@ export default function Home() {
           : <Icon name="plus" className="chev" />}
       </div>
     </div>
+
+    {blockNudge && (
+      <div className="card" style={{ borderColor: 'var(--acc)' }}>
+        <div className="row" style={{ gap: 10, marginBottom: 6 }}>
+          <span className="lrow-i" style={{ background: 'var(--acc)' }}><Icon name="bolt" /></span>
+          <div className="big" style={{ fontSize: 20 }}>{blockNudge.suggested === 2 ? t('Time for Block 2') : t('Back to Block 1')}</div>
+        </div>
+        <div className="muted small" style={{ marginBottom: 12 }}>
+          {blockNudge.suggested === 2
+            ? (blockNudge.deload
+              ? t('Training week {0} — the plan moves to Block 2. This first week is a deload, so take it easier before the intensity techniques start.', blockNudge.week)
+              : t('Training week {0} — the plan is in Block 2 (last-set intensity techniques).', blockNudge.week))
+            : t('Training week {0} — the 12-week cycle is complete; the plan starts over at Block 1.', blockNudge.week)}
+        </div>
+        <Button variant="primary" icon="bolt" onClick={() => update(s => { s.block = blockNudge.suggested })}>{t('Switch to Block {0}', blockNudge.suggested)}</Button>
+        <div style={{ height: 8 }} />
+        <Button variant="ghost" className="dim" onClick={() => update(s => { s.blockNudge = blockNudge.phaseKey })}>{t('Not now')}</Button>
+      </div>
+    )}
 
     {!S.routines.length && !S.active && (
       <div className="card">

@@ -915,7 +915,7 @@ function DayAssign({ day, close }) {
 export const dayAssignSheet = day => ui().openSheet(close => <DayAssign day={day} close={close} />)
 
 /* ============================ workout detail ============================ */
-function WorkoutDetail({ w, close }) {
+function WorkoutDetail({ w, close, startEditing }) {
   const st = useStore(s => s.S)
   const update = useStore(s => s.update)
   // The session note is editable here rather than only at the finish sheet: what you want to
@@ -946,7 +946,7 @@ function WorkoutDetail({ w, close }) {
   // Edits go through the store, so render from the live record — the `w` prop is a snapshot
   // from before the sheet opened and would show stale numbers after the first change.
   const wk = st.workouts.find(x => x.id === w.id) || w
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(!!startEditing)
   // Any set edit re-derives the totals the rest of the app reads (volume, top weight), so a
   // corrected typo flows through to stats and progression the same as if it was logged right.
   const mutWorkout = fn => update(s => {
@@ -1010,10 +1010,13 @@ function WorkoutDetail({ w, close }) {
     <Button variant="danger" onClick={() => confirmSheet({ title: t('Delete workout?'), message: t('This removes it from your history for good.'), confirmText: t('Delete'), danger: true, onConfirm: () => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Workout deleted')) } })}>{t('Delete workout')}</Button>
   </>
 }
-export const workoutDetailSheet = w => ui().openSheet(close => <WorkoutDetail w={w} close={close} />)
+export const workoutDetailSheet = (w, opts) => ui().openSheet(close => <WorkoutDetail w={w} close={close} {...opts} />)
 
 /* ============================ calendar ============================ */
-function Calendar({ start, close }) {
+// Shared between the calendar sheet and the inline "This month" card in Stats — `close` is
+// only present in the sheet, so anything that opens another sheet goes through done().
+export function MonthCalendar({ start, close }) {
+  const done = () => { if (close) close() }
   const st = useStore(s => s.S)
   const [cur, setCur] = useState(() => { const d = start ? new Date(start) : new Date(); d.setDate(1); return d })
   const y = cur.getFullYear(), mo = cur.getMonth()
@@ -1031,9 +1034,11 @@ function Calendar({ start, close }) {
     const ws = byDay[iso], effId = effectiveRoutineId(st, iso), ovr = st.dayPlan[iso] !== undefined
     const dotCls = ws ? 'done' : ovr && effId ? 'ovr' : effId ? 'plan' : ''
     cells.push(<button key={d} className={'cal-d' + (ws ? ' has' : '') + (iso === todayISO() ? ' today' : '')} onClick={() => {
-      if (!ws) { close(); dayOverrideSheet(iso); return }
-      if (ws.length === 1) { close(); workoutDetailSheet(ws[0]); return }
-      close(); ui().openSheet(c2 => <><h3>{fmtDate(iso, true)}</h3><div className="list">{ws.map(w => <WorkoutRow key={w.id} w={w} onClick={() => { c2(); workoutDetailSheet(w) }} />)}</div></>)
+      // An empty day that has already happened can be back-filled (a session logged on
+      // paper, a forgotten phone) — a future one can only be planned.
+      if (!ws) { done(); (iso <= todayISO() ? dayLogSheet(iso) : dayOverrideSheet(iso)); return }
+      if (ws.length === 1) { done(); workoutDetailSheet(ws[0]); return }
+      done(); ui().openSheet(c2 => <><h3>{fmtDate(iso, true)}</h3><div className="list">{ws.map(w => <WorkoutRow key={w.id} w={w} onClick={() => { c2(); workoutDetailSheet(w) }} />)}</div></>)
     }}><span>{d}</span><i className={dotCls} /></button>)
   }
   return <>
@@ -1049,10 +1054,59 @@ function Calendar({ start, close }) {
       <span><i style={{ background: 'var(--label-3)' }} />{t('Planned')}</span>
       <span><i style={{ background: 'var(--orange)' }} />{t('Rescheduled')}</span>
     </div>
-    <div className="small dim" style={{ textAlign: 'center', marginTop: 10 }}>{t('Tap a trained day for details · tap any other day to plan a session')}</div>
+    <div className="small dim" style={{ textAlign: 'center', marginTop: 10 }}>{t('Tap a trained day to view & edit it · an empty past day to log it · a future day to plan it')}</div>
   </>
 }
-export const calendarSheet = start => ui().openSheet(close => <Calendar start={start} close={close} />)
+export const calendarSheet = start => ui().openSheet(close => <MonthCalendar start={start} close={close} />)
+
+/* ============================ back-fill a past day ============================ */
+// A completed session written straight into history: the routine's planned sets, marked done,
+// stamped on `iso`. The detail sheet then opens in edit mode so the numbers can be corrected
+// to what actually happened. No PRs are claimed and nothing is pushed to exWeights — a
+// back-filled day records the past, it doesn't move today's prescriptions on its own.
+export function logPastWorkout(iso, routineId) {
+  const r = S().routines.find(x => x.id === routineId)
+  if (!r) return null
+  let w
+  update(s => {
+    const entries = r.ex.map(cfg => {
+      const sets = buildSets(s, cfg).filter(x => !isWarmupRow(x)).map(x => ({ ...x, done: true }))
+      const top = Math.max(0, ...sets.map(x => x.w || 0))
+      return { id: cfg.id, target: { ...cfg }, sets, topW: top > 0 ? top : null }
+    })
+    const startMs = new Date(iso + 'T12:00:00').getTime()
+    w = { id: uid(), d: iso, start: startMs, end: startMs + 60 * 60000, routineId: r.id, name: r.name, entries, prs: [] }
+    w.vol = workoutVolume(w)
+    // History stays date-ordered — everything reading it (streaks, charts, "last time") counts on that.
+    const idx = s.workouts.findIndex(x => x.d > iso)
+    if (idx === -1) s.workouts.push(w); else s.workouts.splice(idx, 0, w)
+  })
+  return w
+}
+
+function DayLogSheet({ iso, close }) {
+  const st = useStore(s => s.S)
+  return <>
+    <h3>{fmtDate(iso, true)}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('No workout logged on this day.')}</div>
+    {st.routines.length > 0 && <>
+      <h4 className="sec">{t('Log a workout for this day')}</h4>
+      <div className="list" style={{ marginBottom: 12 }}>{st.routines.map(r => (
+        <div key={r.id} className="item" onClick={() => {
+          close()
+          const w = logPastWorkout(iso, r.id)
+          if (w) { workoutDetailSheet(w, { startEditing: true }); toast(t('Session added — adjust the sets to what you did')) }
+        }}>
+          <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
+          <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
+          <Icon name="chevronRight" className="chev" />
+        </div>
+      ))}</div>
+    </>}
+    <Button icon="calendar" onClick={() => { close(); dayOverrideSheet(iso) }}>{t('Plan / reschedule this day')}</Button>
+  </>
+}
+export const dayLogSheet = iso => ui().openSheet(close => <DayLogSheet iso={iso} close={close} />)
 
 /* shared small workout row (used in lists) */
 export function WorkoutRow({ w, onClick }) {
