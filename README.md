@@ -1,3 +1,8 @@
+> **Personal serverless fork** of [openGym](https://gitlab.com/DuarteSantos8/opengym): built with
+> `VITE_PERSONAL=1`, it runs entirely in the browser — no backend, no accounts, no sync. All data
+> stays on the device (back it up via Settings → Export). Deployed to GitHub Pages by
+> [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+
 <div align="center">
 
 <img src="assets/banner.png" alt="openGym" width="720">
