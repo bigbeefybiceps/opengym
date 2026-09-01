@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
+import { ACCENTS, fmtNum, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
 import { blockPlanStatus } from '../lib/block-plan.js'
+import { barsOf } from '../lib/plates.js'
 import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
@@ -12,7 +13,7 @@ import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, PERSONAL, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { ConnectSheet } from './MobileOnboarding.jsx'
-import { loadStarterPlan, confirmSheet, importFromApp, equipmentProfileSheet } from '../sheets.jsx'
+import { loadStarterPlan, confirmSheet, importFromApp, equipmentProfileSheet, barSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
 
@@ -187,6 +188,9 @@ export default function Settings() {
 
     {/* ---------- equipment ---------- */}
     <EquipmentCard S={S} update={update} />
+
+    {/* ---------- bars ---------- */}
+    <BarsCard S={S} update={update} />
 
     {/* ---------- appearance ---------- */}
     <Section title={t('Appearance')} footer={DEMO || MOBILE ? undefined : t('synced with your profile')}>
@@ -389,6 +393,29 @@ function PushCard({ S, update, toast }) {
 // Equipment profiles ("Home", "Gym", ...) — each an id/name/eq-list; the active one filters
 // the Library, exercise picker, and flags routine entries that need something outside it
 // (see lib/equipment.js). Purely local/synced state — no server changes needed.
+function BarsCard({ S, update }) {
+  const bars = barsOf(S)
+  const remove = b => confirmSheet({
+    title: t('Delete bar?'), message: t('"{0}" will no longer be offered in the plate calculator.', t(b.name)),
+    confirmText: t('Delete'), danger: true,
+    // Deleting down to an empty list would fall straight back to the defaults, so the last
+    // bar standing is kept: an explicit one-bar list is a choice, an empty one is a reset.
+    onConfirm: () => update(s => {
+      const list = (Array.isArray(s.bars) && s.bars.length ? s.bars : barsOf(s).map(x => ({ ...x }))).filter(x => x.id !== b.id)
+      s.bars = list.length ? list : [{ ...b }]
+    }),
+  })
+  return <Section title={t('Bars')} footer={t('The bars offered by the plate calculator during a workout. “No bar” is always available for machines and loading pins.')}>
+    {bars.map(b => (
+      <Row key={b.id} icon="barbell" iconTint="var(--acc)" title={t(b.name)} value={fmtNum(b.w) + ' ' + S.unit}
+        accessory="chevron" onClick={() => barSheet(b)}>
+        <button className="iconbtn" aria-label={t('Delete')} onClick={ev => { ev.stopPropagation(); remove(b) }}><Icon name="trash" /></button>
+      </Row>
+    ))}
+    <Row icon="plus" iconTint="var(--acc)" title={t('Add bar')} accessory="chevron" onClick={() => barSheet(null)} />
+  </Section>
+}
+
 function EquipmentCard({ S, update }) {
   const profiles = S.equipProfiles || []
   const remove = p => confirmSheet({

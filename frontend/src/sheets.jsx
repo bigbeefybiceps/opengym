@@ -12,7 +12,7 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, Row, TextField, MultiSelectRow, Check } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, Row, TextField, NumberField, MultiSelectRow, Check } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { exerciseMuscleSnapshot, loadOfWorkouts, MUSCLES, MUSCLE_NAME, normalizeMuscleGroups, hasExplicitMuscleMetadata } from './lib/muscles.js'
@@ -23,7 +23,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDou
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
-import { platesFor, DEFAULT_BAR } from './lib/plates.js'
+import { platesFor, barsOf } from './lib/plates.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -1201,29 +1201,50 @@ export const topWeightSheet = entryIdx => ui().openSheet(close => <TopWeight ent
 
 /* ============================ plate calculator ============================
    Mid-session arithmetic the app can do better than a tired lifter: what goes on each side
-   of the bar for the weight on the screen. The math lives in lib/plates.js; the last bar
-   weight is kept in the profile (S.barW) because you load the same bar every session. */
+   of the bar. Three controls and no more — type the target, pick the bar, and drag the
+   percentage for a warm-up ramp; the plates fall out of lib/plates.js.
+
+   The percentage is why the slider is worth its space: warm-up sets are the one time you
+   need this most and the one time the number on the screen is not the number you load. The
+   bar list lives in Settings → Bars; the chosen bar is remembered in the profile (S.barW)
+   because you load the same bar every session. */
 function PlateCalc({ initial, close }) {
   const st = useStore(s => s.S)
   const unit = st.unit === 'lb' ? 'lb' : 'kg'
-  const [w, setW] = useState(Math.max(1, Math.round((initial || 0) * 10) / 10 || DEFAULT_BAR[unit]))
+  const [target, setTarget] = useState(Math.max(0, Math.round((initial || 0) * 10) / 10))
+  const [pct, setPct] = useState(100)
+  const bars = barsOf(st)
   // 0 is a real choice (machine, loading pin, dumbbell handle) — only an unset profile
-  // falls back to the default bar, so the strict check matters.
-  const bar = typeof st.barW === 'number' && st.barW >= 0 ? st.barW : DEFAULT_BAR[unit]
+  // falls back to a default bar, so the strict check matters.
+  const bar = typeof st.barW === 'number' && st.barW >= 0 ? st.barW : bars[0].w
   const setBar = v => update(s => { s.barW = Math.max(0, v) })
-  const res = platesFor(w, bar, unit)
-  const bars = unit === 'lb' ? [45, 35, 15, 0] : [20, 15, 10, 0]
+  // One option per distinct weight: two bars of the same weight are the same arithmetic,
+  // and duplicate values would collide as list keys.
+  const seen = new Set()
+  const opts = []
+  bars.forEach(b => { if (!seen.has(b.w)) { seen.add(b.w); opts.push({ value: b.w, label: t(b.name), subtitle: fmtNum(b.w) + ' ' + st.unit }) } })
+  if (!seen.has(0)) opts.push({ value: 0, label: t('No bar'), subtitle: t('Machine, loading pin or handle') })
+  // A bar that was deleted from the list is still the profile's choice — keep it selectable
+  // rather than silently loading a different one behind your back.
+  if (!seen.has(bar) && bar !== 0) opts.push({ value: bar, label: fmtNum(bar) + ' ' + st.unit })
+
+  const working = Math.round(target * (pct / 100) * 10) / 10
+  const res = platesFor(working, bar, unit)
   return <>
     <h3 className="row" style={{ gap: 8 }}><Icon name="plate" style={{ color: 'var(--acc)' }} />{t('Plate calculator')}</h3>
-    <div className="muted small">{t('What to load on each side for this total.')}</div>
-    <WeightInput value={w} setValue={setW} unit={st.unit} />
-    <div className="row between" style={{ margin: '12px 0 14px' }}>
-      <span className="small dim">{t('Bar')}</span>
-      <div className="row" style={{ gap: 6 }}>
-        {bars.map(b => <button key={b} className={'chip nocap' + (bar === b ? ' on' : '')} onClick={() => setBar(b)}>{b === 0 ? t('No bar') : fmtNum(b) + ' ' + st.unit}</button>)}
-        <Stepper value={bar} step={unit === 'lb' ? 5 : 2.5} onChange={setBar} />
-      </div>
+    <div className="row between" style={{ gap: 10, margin: '14px 0 4px' }}>
+      <span className="small dim" style={{ flex: 'none' }}>{t('Target ({0})', st.unit)}</span>
+      <NumberField className="pc-target" decimal value={target} onChange={v => setTarget(v || 0)} />
     </div>
+    <div className="sect-b" style={{ margin: '10px 0 14px' }}>
+      <SelectRow title={t('Bar')} sheetTitle={t('Bar')} value={bar} onChange={setBar} options={opts} />
+    </div>
+    <div className="row between" style={{ marginBottom: 2 }}>
+      <span className="small dim">{t('Percent of target')}</span>
+      <span className="small nocap" style={{ color: 'var(--acc)' }}>{pct}% · {fmtNum(working)} {st.unit}</span>
+    </div>
+    <Slider value={pct} min={0} max={100} step={5} onChange={setPct} />
+    <div style={{ height: 14 }} />
     {res.belowBar
       ? <div className="small" style={{ color: 'var(--yellow)', textAlign: 'center', marginBottom: 14 }}>{t('Below the bar weight — start with the empty bar.')}</div>
       : <div style={{ textAlign: 'center', marginBottom: 14 }}>
@@ -1241,6 +1262,40 @@ function PlateCalc({ initial, close }) {
   </>
 }
 export const plateCalcSheet = initial => ui().openSheet(close => <PlateCalc initial={initial} close={close} />)
+
+/* One bar in the profile's list (Settings → Bars). Name is for you; the weight is what the
+   calculator subtracts before it splits the rest into plates. Editing the list seeds it from
+   the unit's defaults first, so changing one bar never silently drops the other two. */
+function BarSheet({ bar, close }) {
+  const st = useStore(s => s.S)
+  const unit = st.unit === 'lb' ? 'lb' : 'kg'
+  const [name, setName] = useState(bar ? bar.name : '')
+  const [w, setW] = useState(bar ? bar.w : (unit === 'lb' ? 45 : 20))
+  const save = () => {
+    const nm = (name || '').trim().slice(0, 40) || t('Bar')
+    const weight = Math.max(0, Math.round((w || 0) * 100) / 100)
+    update(s => {
+      const list = Array.isArray(s.bars) && s.bars.length ? s.bars : barsOf(s).map(b => ({ ...b }))
+      const found = bar && list.find(x => x.id === bar.id)
+      if (found) { found.name = nm; found.w = weight } else list.push({ id: uid(), name: nm, w: weight })
+      s.bars = list
+    })
+    close()
+  }
+  return <>
+    <h3>{bar ? t('Edit bar') : t('Add bar')}</h3>
+    <div style={{ height: 12 }} />
+    <TextField placeholder={t('Name')} value={name} maxLength={40} onChange={e => setName(e.target.value)} />
+    <div style={{ height: 12 }} />
+    <div className="row between">
+      <span className="small dim">{t('Weight ({0})', st.unit)}</span>
+      <Stepper value={w} step={unit === 'lb' ? 5 : 2.5} onChange={setW} />
+    </div>
+    <div style={{ height: 16 }} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+  </>
+}
+export const barSheet = bar => ui().openSheet(close => <BarSheet bar={bar} close={close} />)
 
 /* ============================ exercise notes ============================
    Two notes, one sheet, because from the user's side it is one question — "what do I want to

@@ -988,3 +988,13 @@ h4.sec{
   .exmedia img{height:380px}
   .hm-wrap{display:flex;flex-direction:column;align-items:center}
 }
+
+/* plate calculator: the target is typed, not stepped, so the field carries its own styling —
+   a bare .num only inherits colours inside a .stp and would render invisible on its own. */
+.num.pc-target{
+  flex:none;width:9ch;text-align:right;background:var(--surface);color:var(--label);
+  border:none;border-radius:var(--r);padding:11px 13px;font-size:20px;font-weight:600;
+  letter-spacing:-.014em;outline:none;transition:box-shadow var(--fast);
+  -moz-appearance:textfield;appearance:textfield;
+}
+.num.pc-target:focus{box-shadow:inset 0 0 0 2px var(--acc)}

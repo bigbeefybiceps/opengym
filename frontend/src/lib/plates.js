@@ -46,3 +46,28 @@ export function platesFor(target, bar, unit = 'kg') {
   const achieved = Math.round((b + (best / U) * 2) * 1000) / 1000
   return { belowBar: false, plates, achieved, leftover: Math.round((target - achieved) * 1000) / 1000 }
 }
+
+/* ---------------------------------------------------------------------------
+   The bars you actually own. Editable in Settings → Bars; until someone edits
+   the list, these stand in so the calculator works out of the box. "No bar" is
+   not one of them: 0 is offered by the picker itself and can never be deleted,
+   because a machine or a loading pin always needs it. */
+export const DEFAULT_BARS = {
+  kg: [
+    { id: 'bar-olympic', name: 'Olympic bar', w: 20 },
+    { id: 'bar-womens', name: "Women's bar", w: 15 },
+    { id: 'bar-short', name: 'Short / EZ bar', w: 10 }
+  ],
+  lb: [
+    { id: 'bar-olympic', name: 'Olympic bar', w: 45 },
+    { id: 'bar-womens', name: "Women's bar", w: 35 },
+    { id: 'bar-short', name: 'Short / EZ bar', w: 15 }
+  ]
+}
+
+/** The profile's bars, falling back to the defaults for its unit. Never empty. */
+export function barsOf(S) {
+  const unit = S && S.unit === 'lb' ? 'lb' : 'kg'
+  const list = S && Array.isArray(S.bars) ? S.bars.filter(b => b && b.w >= 0) : null
+  return list && list.length ? list : DEFAULT_BARS[unit]
+}

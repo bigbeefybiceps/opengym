@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { platesFor, PLATES, DEFAULT_BAR } from './plates.js'
+import { platesFor, barsOf, PLATES, DEFAULT_BAR, DEFAULT_BARS } from './plates.js'
 
 const sides = r => r.plates.map(p => `${p.n}x${p.w}`).join(' ')
 
@@ -57,5 +57,24 @@ describe('plate calculator', () => {
     expect(sides(r)).toBe('1x45')
     expect(r.achieved).toBe(135)
     expect(PLATES.lb[0]).toBe(55)
+  })
+})
+
+describe('the profile\'s bar list', () => {
+  it('falls back to the unit defaults when unset or empty', () => {
+    expect(barsOf({ unit: 'kg' })).toEqual(DEFAULT_BARS.kg)
+    expect(barsOf({ unit: 'lb' })).toEqual(DEFAULT_BARS.lb)
+    expect(barsOf({ unit: 'kg', bars: [] })).toEqual(DEFAULT_BARS.kg)
+    expect(barsOf(null)).toEqual(DEFAULT_BARS.kg)
+  })
+
+  it('uses the profile\'s own bars once it has any', () => {
+    const mine = [{ id: 'b1', name: 'Deadlift bar', w: 25 }]
+    expect(barsOf({ unit: 'kg', bars: mine })).toEqual(mine)
+  })
+
+  it('keeps a 0 kg bar but drops malformed entries', () => {
+    const bars = [{ id: 'a', name: 'Pin', w: 0 }, { id: 'b', name: 'Broken', w: -5 }, null]
+    expect(barsOf({ unit: 'kg', bars })).toEqual([{ id: 'a', name: 'Pin', w: 0 }])
   })
 })
