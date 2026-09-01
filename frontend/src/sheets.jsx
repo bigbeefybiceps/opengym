@@ -3,7 +3,7 @@ import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, smOf, matchExercise, exOr } from './lib/exercises.js'
 import { activeProfile, exAvailable, ALL_EQUIPMENT, newProfile } from './lib/equipment.js'
-import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
+import { fmtDate, fmtNum, fmtPlate, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
 import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone, applyIntensifierPlan, MAX_PLANNED_WARMUPS, NOTE_MAX } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
 import { t, instrFor, exerciseNameFor, getLang, INSTR_LANGS } from './lib/i18n.js'
@@ -23,7 +23,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDou
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
-import { platesFor, barsOf } from './lib/plates.js'
+import { platesFor, barsOf, platesOf } from './lib/plates.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -1229,7 +1229,7 @@ function PlateCalc({ initial, close }) {
   if (!seen.has(bar) && bar !== 0) opts.push({ value: bar, label: fmtNum(bar) + ' ' + st.unit })
 
   const working = Math.round(target * (pct / 100) * 10) / 10
-  const res = platesFor(working, bar, unit)
+  const res = platesFor(working, bar, unit, platesOf(st))
   return <>
     <h3 className="row" style={{ gap: 8 }}><Icon name="plate" style={{ color: 'var(--acc)' }} />{t('Plate calculator')}</h3>
     <div className="row between" style={{ gap: 10, margin: '14px 0 4px' }}>
@@ -1251,7 +1251,7 @@ function PlateCalc({ initial, close }) {
         <div className="small dim" style={{ marginBottom: 6 }}>{t('Per side')}</div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
           {res.plates.length
-            ? res.plates.map(p => <span key={p.w} className="tag nocap" style={{ fontSize: 15 }}>{p.n} × {fmtNum(p.w)}</span>)
+            ? res.plates.map(p => <span key={p.w} className="tag nocap" style={{ fontSize: 15 }}>{p.n} × {fmtPlate(p.w)}</span>)
             : <span className="tag">{bar > 0 ? t('Empty bar') : t('No plates')}</span>}
         </div>
         {res.leftover > 0 && <div className="small dim" style={{ marginTop: 8 }}>
@@ -1296,6 +1296,41 @@ function BarSheet({ bar, close }) {
   </>
 }
 export const barSheet = bar => ui().openSheet(close => <BarSheet bar={bar} close={close} />)
+
+/* One plate size in the profile's rack (Settings → Plates). A size, not a pair count: the
+   calculator assumes you have as many pairs of each as the answer needs, which is true often
+   enough that asking for counts would cost more taps than it saves. */
+function PlateSizeSheet({ size, close }) {
+  const st = useStore(s => s.S)
+  const unit = st.unit === 'lb' ? 'lb' : 'kg'
+  const [w, setW] = useState(size || (unit === 'lb' ? 45 : 20))
+  const save = () => {
+    // 0.05 is the calculator's resolution; anything finer is not a plate you can buy, and a
+    // size that rounds to nothing would be a coin the plate math can never spend.
+    const weight = Math.round((w || 0) * 20) / 20
+    if (!(weight > 0)) { toast(t('Enter a valid weight')); return }
+    update(s => {
+      const list = Array.isArray(s.plates) && s.plates.length ? s.plates : platesOf(s).slice()
+      const i = size ? list.indexOf(size) : -1
+      if (i >= 0) list[i] = weight
+      else if (!list.includes(weight)) list.push(weight)
+      s.plates = [...new Set(list)].sort((a, b) => b - a)
+    })
+    close()
+  }
+  return <>
+    <h3>{size ? t('Edit plate') : t('Add plate')}</h3>
+    <div className="muted small">{t('One plate, as it is stamped — the calculator loads a pair of them.')}</div>
+    <div style={{ height: 14 }} />
+    <div className="row between">
+      <span className="small dim">{t('Weight ({0})', st.unit)}</span>
+      <Stepper value={w} step={unit === 'lb' ? 2.5 : 1.25} onChange={setW} />
+    </div>
+    <div style={{ height: 16 }} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+  </>
+}
+export const plateSizeSheet = size => ui().openSheet(close => <PlateSizeSheet size={size} close={close} />)
 
 /* ============================ exercise notes ============================
    Two notes, one sheet, because from the user's side it is one question — "what do I want to

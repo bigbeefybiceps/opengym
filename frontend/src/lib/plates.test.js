@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { platesFor, barsOf, PLATES, DEFAULT_BAR, DEFAULT_BARS } from './plates.js'
+import { platesFor, barsOf, platesOf, PLATES, DEFAULT_BAR, DEFAULT_BARS } from './plates.js'
+import { fmtNum, fmtPlate } from './format.js'
 
 const sides = r => r.plates.map(p => `${p.n}x${p.w}`).join(' ')
 
@@ -76,5 +77,49 @@ describe('the profile\'s bar list', () => {
   it('keeps a 0 kg bar but drops malformed entries', () => {
     const bars = [{ id: 'a', name: 'Pin', w: 0 }, { id: 'b', name: 'Broken', w: -5 }, null]
     expect(barsOf({ unit: 'kg', bars })).toEqual([{ id: 'a', name: 'Pin', w: 0 }])
+  })
+})
+
+describe("the profile's plate rack", () => {
+  it('falls back to the unit set, and sorts its own biggest first', () => {
+    expect(platesOf({ unit: 'kg' })).toEqual(PLATES.kg)
+    expect(platesOf({ unit: 'lb' })).toEqual(PLATES.lb)
+    expect(platesOf({ unit: 'kg', plates: [] })).toEqual(PLATES.kg)
+    expect(platesOf({ unit: 'kg', plates: [5, 20, 1.25] })).toEqual([20, 5, 1.25])
+  })
+
+  it('drops sizes that are not a real plate', () => {
+    expect(platesOf({ unit: 'kg', plates: [20, 0, -5] })).toEqual([20])
+  })
+
+  it('only loads plates the rack actually has', () => {
+    // 20s and 5s only: 60 on a 20 bar is 20/side, and 62.5 cannot be made at all
+    const rack = [20, 5]
+    expect(platesFor(60, 20, 'kg', rack).plates).toEqual([{ w: 20, n: 1 }])
+    const odd = platesFor(62.5, 20, 'kg', rack)
+    expect(odd.achieved).toBe(60)
+    expect(odd.leftover).toBeCloseTo(2.5)
+  })
+
+  it('handles micro plates finer than the old quarter-unit grid', () => {
+    const r = platesFor(20.2, 20, 'kg', [0.1])
+    expect(r.plates).toEqual([{ w: 0.1, n: 1 }])
+    expect(r.leftover).toBe(0)
+  })
+
+  it('never spends a zero-weight coin', () => {
+    const r = platesFor(60, 20, 'kg', [0])
+    expect(r.plates).toEqual([])
+    expect(r.achieved).toBe(20)
+    expect(r.leftover).toBeCloseTo(40)
+  })
+})
+
+describe('plate labels', () => {
+  it('keeps the second decimal a plate actually has', () => {
+    expect(fmtPlate(1.25)).toBe('1.25')
+    expect(fmtPlate(2.5)).toBe('2.5')
+    expect(fmtPlate(20)).toBe('20')
+    expect(fmtNum(1.25)).toBe('1.3')      // why fmtPlate exists
   })
 })

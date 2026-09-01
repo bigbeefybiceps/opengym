@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { ACCENTS, fmtNum, todayISO, localTZ } from '../lib/format.js'
+import { ACCENTS, fmtNum, fmtPlate, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
 import { blockPlanStatus } from '../lib/block-plan.js'
-import { barsOf } from '../lib/plates.js'
+import { barsOf, platesOf } from '../lib/plates.js'
 import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
@@ -13,7 +13,7 @@ import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, PERSONAL, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { ConnectSheet } from './MobileOnboarding.jsx'
-import { loadStarterPlan, confirmSheet, importFromApp, equipmentProfileSheet, barSheet } from '../sheets.jsx'
+import { loadStarterPlan, confirmSheet, importFromApp, equipmentProfileSheet, barSheet, plateSizeSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
 
@@ -189,8 +189,9 @@ export default function Settings() {
     {/* ---------- equipment ---------- */}
     <EquipmentCard S={S} update={update} />
 
-    {/* ---------- bars ---------- */}
+    {/* ---------- bars & plates ---------- */}
     <BarsCard S={S} update={update} />
+    <PlatesCard S={S} update={update} />
 
     {/* ---------- appearance ---------- */}
     <Section title={t('Appearance')} footer={DEMO || MOBILE ? undefined : t('synced with your profile')}>
@@ -413,6 +414,28 @@ function BarsCard({ S, update }) {
       </Row>
     ))}
     <Row icon="plus" iconTint="var(--acc)" title={t('Add bar')} accessory="chevron" onClick={() => barSheet(null)} />
+  </Section>
+}
+
+function PlatesCard({ S, update }) {
+  const plates = platesOf(S)
+  const remove = w => confirmSheet({
+    title: t('Delete plate?'), message: t('{0} {1} will no longer be used by the plate calculator.', fmtPlate(w), S.unit),
+    confirmText: t('Delete'), danger: true,
+    // Same rule as the bars: an explicit one-plate rack is a choice, an empty one is a reset.
+    onConfirm: () => update(s => {
+      const list = (Array.isArray(s.plates) && s.plates.length ? s.plates : platesOf(s).slice()).filter(x => x !== w)
+      s.plates = list.length ? list : [w]
+    }),
+  })
+  return <Section title={t('Plates')} footer={t('The plates the calculator may use, one of each size — it always loads them in pairs and assumes you have as many pairs as a set needs.')}>
+    {plates.map(w => (
+      <Row key={w} icon="plate" iconTint="var(--blue)" title={fmtPlate(w) + ' ' + S.unit}
+        accessory="chevron" onClick={() => plateSizeSheet(w)}>
+        <button className="iconbtn" aria-label={t('Delete')} onClick={ev => { ev.stopPropagation(); remove(w) }}><Icon name="trash" /></button>
+      </Row>
+    ))}
+    <Row icon="plus" iconTint="var(--acc)" title={t('Add plate')} accessory="chevron" onClick={() => plateSizeSheet(null)} />
   </Section>
 }
 
