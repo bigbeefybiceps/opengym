@@ -44,6 +44,14 @@ describe('plate calculator', () => {
     }
   })
 
+  it('loads the full target with no bar at all', () => {
+    const r = platesFor(50, 0, 'kg')
+    expect(sides(r)).toBe('1x25')       // 25 per side, nothing under it
+    expect(r.achieved).toBe(50)
+    expect(r.leftover).toBe(0)
+    expect(platesFor(15, 0, 'kg').belowBar).toBe(false)
+  })
+
   it('works in pounds with the lb inventory and bar', () => {
     const r = platesFor(135, DEFAULT_BAR.lb, 'lb')
     expect(sides(r)).toBe('1x45')

@@ -1207,10 +1207,12 @@ function PlateCalc({ initial, close }) {
   const st = useStore(s => s.S)
   const unit = st.unit === 'lb' ? 'lb' : 'kg'
   const [w, setW] = useState(Math.max(1, Math.round((initial || 0) * 10) / 10 || DEFAULT_BAR[unit]))
-  const bar = st.barW > 0 ? st.barW : DEFAULT_BAR[unit]
+  // 0 is a real choice (machine, loading pin, dumbbell handle) — only an unset profile
+  // falls back to the default bar, so the strict check matters.
+  const bar = typeof st.barW === 'number' && st.barW >= 0 ? st.barW : DEFAULT_BAR[unit]
   const setBar = v => update(s => { s.barW = Math.max(0, v) })
   const res = platesFor(w, bar, unit)
-  const bars = unit === 'lb' ? [45, 35, 15] : [20, 15, 10]
+  const bars = unit === 'lb' ? [45, 35, 15, 0] : [20, 15, 10, 0]
   return <>
     <h3 className="row" style={{ gap: 8 }}><Icon name="plate" style={{ color: 'var(--acc)' }} />{t('Plate calculator')}</h3>
     <div className="muted small">{t('What to load on each side for this total.')}</div>
@@ -1218,7 +1220,7 @@ function PlateCalc({ initial, close }) {
     <div className="row between" style={{ margin: '12px 0 14px' }}>
       <span className="small dim">{t('Bar')}</span>
       <div className="row" style={{ gap: 6 }}>
-        {bars.map(b => <button key={b} className={'chip nocap' + (bar === b ? ' on' : '')} onClick={() => setBar(b)}>{fmtNum(b)} {st.unit}</button>)}
+        {bars.map(b => <button key={b} className={'chip nocap' + (bar === b ? ' on' : '')} onClick={() => setBar(b)}>{b === 0 ? t('No bar') : fmtNum(b) + ' ' + st.unit}</button>)}
         <Stepper value={bar} step={unit === 'lb' ? 5 : 2.5} onChange={setBar} />
       </div>
     </div>
@@ -1229,7 +1231,7 @@ function PlateCalc({ initial, close }) {
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
           {res.plates.length
             ? res.plates.map(p => <span key={p.w} className="tag nocap" style={{ fontSize: 15 }}>{p.n} × {fmtNum(p.w)}</span>)
-            : <span className="tag">{t('Empty bar')}</span>}
+            : <span className="tag">{bar > 0 ? t('Empty bar') : t('No plates')}</span>}
         </div>
         {res.leftover > 0 && <div className="small dim" style={{ marginTop: 8 }}>
           {t('Closest loadable: {0} {1} — {2} {1} short of the target.', fmtNum(res.achieved), st.unit, fmtNum(res.leftover))}
