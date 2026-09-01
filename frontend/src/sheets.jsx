@@ -19,10 +19,11 @@ import { exerciseMuscleSnapshot, loadOfWorkouts, MUSCLES, MUSCLE_NAME, normalize
 import { parseImport, mergeImport } from './lib/import-csv.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-share.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
-import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
+import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDoubleLike, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
+import { platesFor, DEFAULT_BAR } from './lib/plates.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -564,7 +565,7 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
     {active !== 'off' && <div className="row cfgrow" style={{ marginBottom: 18 }}>
       <Stepper label={mode === 'time' ? t('Step (seconds)') : t('Step ({0})', unit)} value={inc}
         step={mode === 'time' ? 5 : 1.25} decimal={mode !== 'time'} onChange={v => setC(x => ({ ...x, inc: v }))} />
-      {active === 'double' && <Stepper label={t('Reps from')} value={c.repsMin || Math.max(1, (c.reps || 10) - 2)}
+      {isDoubleLike(active) && <Stepper label={t('Reps from')} value={c.repsMin || Math.max(1, (c.reps || 10) - 2)}
         step={1} decimal={false} onChange={v => setC(x => ({ ...x, repsMin: v }))} />}
     </div>}
   </>
@@ -618,7 +619,7 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
       // intensity technique) survive a round-trip through this sheet instead of being dropped.
       if (Array.isArray(c.rir) && c.rir.length) out.rir = c.rir
       if (c.b2) out.b2 = c.b2
-      if (policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
+      if (isDoubleLike(policyFor({ ...c, id: ex.id }, routine, 'reps'))) out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
       // A ceiling below the working reps would tell you to add a set on day one.
       if (bw && !(out.weight > 0) && c.repsMax > 0) out.repsMax = Math.max(reps, Math.round(c.repsMax))
       // Every set in this exercise becomes a drop-set/rest-pause (buildSets stamps the rows) —
@@ -1197,6 +1198,47 @@ function TopWeight({ entryIdx, close }) {
   </>
 }
 export const topWeightSheet = entryIdx => ui().openSheet(close => <TopWeight entryIdx={entryIdx} close={close} />)
+
+/* ============================ plate calculator ============================
+   Mid-session arithmetic the app can do better than a tired lifter: what goes on each side
+   of the bar for the weight on the screen. The math lives in lib/plates.js; the last bar
+   weight is kept in the profile (S.barW) because you load the same bar every session. */
+function PlateCalc({ initial, close }) {
+  const st = useStore(s => s.S)
+  const unit = st.unit === 'lb' ? 'lb' : 'kg'
+  const [w, setW] = useState(Math.max(1, Math.round((initial || 0) * 10) / 10 || DEFAULT_BAR[unit]))
+  const bar = st.barW > 0 ? st.barW : DEFAULT_BAR[unit]
+  const setBar = v => update(s => { s.barW = Math.max(0, v) })
+  const res = platesFor(w, bar, unit)
+  const bars = unit === 'lb' ? [45, 35, 15] : [20, 15, 10]
+  return <>
+    <h3 className="row" style={{ gap: 8 }}><Icon name="plate" style={{ color: 'var(--acc)' }} />{t('Plate calculator')}</h3>
+    <div className="muted small">{t('What to load on each side for this total.')}</div>
+    <WeightInput value={w} setValue={setW} unit={st.unit} />
+    <div className="row between" style={{ margin: '12px 0 14px' }}>
+      <span className="small dim">{t('Bar')}</span>
+      <div className="row" style={{ gap: 6 }}>
+        {bars.map(b => <button key={b} className={'chip nocap' + (bar === b ? ' on' : '')} onClick={() => setBar(b)}>{fmtNum(b)} {st.unit}</button>)}
+        <Stepper value={bar} step={unit === 'lb' ? 5 : 2.5} onChange={setBar} />
+      </div>
+    </div>
+    {res.belowBar
+      ? <div className="small" style={{ color: 'var(--yellow)', textAlign: 'center', marginBottom: 14 }}>{t('Below the bar weight — start with the empty bar.')}</div>
+      : <div style={{ textAlign: 'center', marginBottom: 14 }}>
+        <div className="small dim" style={{ marginBottom: 6 }}>{t('Per side')}</div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {res.plates.length
+            ? res.plates.map(p => <span key={p.w} className="tag nocap" style={{ fontSize: 15 }}>{p.n} × {fmtNum(p.w)}</span>)
+            : <span className="tag">{t('Empty bar')}</span>}
+        </div>
+        {res.leftover > 0 && <div className="small dim" style={{ marginTop: 8 }}>
+          {t('Closest loadable: {0} {1} — {2} {1} short of the target.', fmtNum(res.achieved), st.unit, fmtNum(res.leftover))}
+        </div>}
+      </div>}
+    <Button variant="primary" onClick={close}>{t('Done')}</Button>
+  </>
+}
+export const plateCalcSheet = initial => ui().openSheet(close => <PlateCalc initial={initial} close={close} />)
 
 /* ============================ exercise notes ============================
    Two notes, one sheet, because from the user's side it is one question — "what do I want to

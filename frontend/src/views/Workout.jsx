@@ -10,7 +10,7 @@ import { t, exerciseNameFor } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import { setProgressHighWater, supersetFlowStep, restAfterSet, restOnRecheck } from '../lib/supersetFlow.js'
 import Media from '../components/Media.jsx'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet } from '../sheets.jsx'
+import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, plateCalcSheet, finishWorkout, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription, defaultIncrement } from '../lib/progression.js'
@@ -159,6 +159,13 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     <div className="row between" style={{ marginBottom: 6 }}>
       <div style={{ fontSize: compact ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', textTransform: 'capitalize', lineHeight: 1.2 }}>{exerciseNameFor(ex)}</div>
       <div className="row" style={{ gap: 2, flex: 'none' }}>
+        {/* Only where there is a load to put on something — a bodyweight or cardio block has
+            nothing to slice into plates. Prefilled with the set you are about to lift. */}
+        {!cardio && !timed && (!bw || added) && <button className="iconbtn" aria-label={t('Plate calculator')} title={t('Plate calculator')}
+          onClick={() => {
+            const work = entry.sets.filter(s => !isWarmupRow(s))
+            plateCalcSheet((work.find(s => !s.done) || work[0] || {}).w || cfg.weight || 0)
+          }}><Icon name="plate" /></button>}
         <button className="iconbtn" aria-label={t('Note')} title={t('Note')}
           style={entry.note ? { color: 'var(--acc)' } : undefined}
           onClick={() => exerciseNoteSheet(entryIdx)}><Icon name="pencil" /></button>
@@ -393,7 +400,7 @@ function ActiveWorkout() {
     const m = modeAt(idx)
     const cardioEntry = m === 'cardio'
     const isLastUnit = unitIdx >= units.length - 1
-    let askTop = false, exJustDone = false, workoutDone = false, checked = false
+    let askTop = false, autoTop = false, exJustDone = false, workoutDone = false, checked = false
     mutEntry(idx, e => {
       e.sets[i].done = !e.sets[i].done
       checked = e.sets[i].done
@@ -405,11 +412,26 @@ function ActiveWorkout() {
         // plank has nothing to put in that slider, and neither does a set of push-ups
         // (issue #32: the fewest taps that still record what happened).
         const loaded = m === 'reps' && !(isBw({ ...(e.target || {}), id: e.id }) && !e.sets.some(x => x.w > 0))
-        if (e.sets.every(x => x.done)) { exJustDone = true; if (loaded && !e.asked) { e.asked = true; askTop = true } }
+        // The confirmation itself can be turned off (Settings → During a workout) — the
+        // heaviest logged set is then taken as read, and the next session's numbers come
+        // from the progression rule the same way they always do.
+        if (e.sets.every(x => x.done)) { exJustDone = true; if (loaded && !e.asked) { e.asked = true; if (S.askTopWeight !== false) askTop = true; else autoTop = true } }
+      }
+    })
+    // With the sheet off, do silently what its Save button does: record the top working
+    // weight on the entry and keep the confirmed-weight table current.
+    if (autoTop) update(s => {
+      const e = s.active?.entries?.[idx]
+      if (!e) return
+      const n = Math.max(0, ...e.sets.filter(x => x.done && !isWarmupRow(x)).map(x => x.w || 0))
+      if (n > 0) {
+        e.topW = n
+        const cur = s.exWeights[e.id]
+        s.exWeights[e.id] = { w: Math.max(n, cur ? cur.w : 0), d: todayISO() }
       }
     })
     // reps: topWeight first (it chains into the finish/continue prompt on the last unit).
-    // cardio/timed or already-confirmed: go straight to the prompt.
+    // cardio/timed, already-confirmed or auto-confirmed: go straight to the prompt.
     if (askTop) topWeightSheet(idx)
     else if (workoutDone) workoutCompleteSheet()
     else if (exJustDone && cardioEntry) useUI.getState().toast(t('Cardio logged'))

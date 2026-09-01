@@ -20,20 +20,25 @@ import { modeOf, repStep, rerampWarmups } from './history.js'
 import { EXIDX } from './exercises.js'
 import { isWarmupRow } from './workout-model.js'
 
-export const POLICIES = ['off', 'linear', 'greyskull', 'double', 'time']
+export const POLICIES = ['off', 'linear', 'greyskull', 'double', 'double-nd', 'time']
 
 // Which policies can sensibly drive which logging mode.
 export const POLICIES_FOR = {
-  reps: ['off', 'linear', 'greyskull', 'double'],
+  reps: ['off', 'linear', 'greyskull', 'double', 'double-nd'],
   time: ['off', 'time'],
   cardio: ['off']
 }
+
+// Both flavours of double progression share the rep-range machinery; only the stall
+// behaviour differs, so everything that means "has a rep range" asks this instead.
+export const isDoubleLike = p => p === 'double' || p === 'double-nd'
 
 export const POLICY_NAME = {
   off: 'No automatic progression',
   linear: 'Linear progression',
   greyskull: 'Greyskull LP',
   double: 'Double progression',
+  'double-nd': 'Modified double progression',
   time: 'Add time'
 }
 export const POLICY_DESC = {
@@ -41,6 +46,7 @@ export const POLICY_DESC = {
   linear: 'Hit every rep in every set and the weight goes up. Repeated misses trigger a deload.',
   greyskull: 'Two straight sets plus a final set taken to failure. Beat the target on that set and the weight goes up — double if you double the reps. One failure resets 10 %.',
   double: 'Work up through a rep range at the same weight. Reach the top of the range in every set and the weight goes up, reps back to the bottom.',
+  'double-nd': 'Double progression without the safety net: the same rep-range rules, but a stall just holds the weight — it never triggers a deload.',
   time: 'Hold every set for the full duration and the target goes up.'
 }
 
@@ -209,11 +215,13 @@ export function nextPrescription(S, cfg, routine) {
     const next = goal + repStep(cfg)
     return { policy, kind: 'up', weight: 0, reps: next, why: ['Bodyweight — every rep last time, so go for {0} this time.', next] }
   }
-  if (policy === 'double') {
+  if (isDoubleLike(policy)) {
     const top = cfg.reps || last.goal || 10
     const bottom = Math.min(cfg.repsMin || Math.max(1, top - 2), top)
     if (last.ok) return { policy, kind: 'up', weight: snap(w + inc, inc), reps: bottom, why: ['Top of the rep range in every set — {0} {1} more, back to {2} reps.', inc, unit, bottom] }
-    if (stalls >= deloadAt) {
+    // The modified flavour never deloads: however long the stall, it holds and keeps chipping
+    // at the rep range — the fall-through below is the whole difference between the two.
+    if (policy === 'double' && stalls >= deloadAt) {
       const dw = deloadTo(w, inc)
       return { policy, kind: 'deload', weight: dw, reps: bottom, why: ['Stalled {0} sessions — deload to {1} {2}.', stalls, dw, unit] }
     }

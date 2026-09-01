@@ -313,6 +313,30 @@ describe('double progression', () => {
   })
 })
 
+describe('modified double progression', () => {
+  const cfg = { id: LIFT, sets: 3, reps: 12, repsMin: 8, weight: 40, prog: 'double-nd' }
+
+  it('progresses exactly like double progression on a clean session', () => {
+    const p = nextPrescription(hist(LIFT, [[40, 12, 12, 12]], { sets: 3, reps: 12 }), cfg)
+    expect(p.kind).toBe('up')
+    expect(p.weight).toBe(42.5)
+    expect(p.reps).toBe(8)
+  })
+
+  it('never deloads, however long the stall runs', () => {
+    const rows = Array.from({ length: 6 }, () => [40, 9, 9, 9])
+    const p = nextPrescription(hist(LIFT, rows, { sets: 3, reps: 12 }), cfg)
+    expect(p.kind).toBe('hold')
+    expect(p.weight).toBe(40)
+    expect(p.reps).toBe(10)             // still chipping at the range: worst set 9 → aim 10
+  })
+
+  it('is selectable for reps and carries its own name', () => {
+    expect(POLICIES_FOR.reps).toContain('double-nd')
+    expect(policyFor({ id: LIFT, prog: 'double-nd' }, null, 'reps')).toBe('double-nd')
+  })
+})
+
 describe('timed progression', () => {
   const cfg = { id: LIFT, mode: 'time', sets: 2, sec: 45, prog: 'time' }
   const T = { sets: 2, sec: 45, mode: 'time' }

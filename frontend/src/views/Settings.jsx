@@ -163,6 +163,12 @@ export default function Settings() {
         subtitle={S.askWeighIn === false ? t('Workouts start right away — log weigh-ins from Home.') : null}>
         <Switch checked={S.askWeighIn !== false} onChange={v => update(s => { s.askWeighIn = v })} />
       </Row>
+      {/* The end-of-exercise "confirm your working weight" sheet. Off, the heaviest logged
+          set is recorded silently and the next session still follows the progression rule. */}
+      <Row icon="plate" iconTint="var(--acc)" title={t('Confirm weight after each exercise')}
+        subtitle={S.askTopWeight === false ? t('The heaviest set is kept automatically — progression carries on as usual.') : null}>
+        <Switch checked={S.askTopWeight !== false} onChange={v => update(s => { s.askTopWeight = v })} />
+      </Row>
       {/* Which block of a periodised plan is running. Exercises whose plan carries a block-2
           last-set intensity technique (cfg.b2) show it in the workout while 2 is selected. */}
       <Row icon="bolt" iconTint="var(--orange)" title={t('Training block')}
