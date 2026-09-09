@@ -33,6 +33,19 @@ export const POLICIES_FOR = {
 // behaviour differs, so everything that means "has a rep range" asks this instead.
 export const isDoubleLike = p => p === 'double' || p === 'double-nd'
 
+/**
+ * The exercises whose own rule would quietly ignore a new routine-level one.
+ *
+ * A per-exercise rule beats the routine's (see policyFor), which is right when you chose it
+ * and a trap when you didn't: an imported plan that stamps `prog` on all 35 exercises makes
+ * the routine's picker look broken — you change it and every exercise carries on as before.
+ * Only reps-mode exercises count. A timed hold's rule is not one the routine can supply
+ * (POLICIES_FOR.time), so clearing it would silently turn its progression off.
+ */
+export function strandedOverrides(routine, next) {
+  return ((routine && routine.ex) || []).filter(e => e.prog && e.prog !== next && modeOf({ ...e, id: e.id }) === 'reps')
+}
+
 export const POLICY_NAME = {
   off: 'No automatic progression',
   linear: 'Linear progression',

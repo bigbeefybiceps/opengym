@@ -349,6 +349,28 @@ h4.sec{
   #toast{background:var(--surface-2)}
 }
 
+/* Phone and tablet widths: no live glass on the two bars that sit over a scrolling page.
+   A backdrop-filter has to re-sample whatever is underneath it on every frame, and on a
+   position:fixed element that means re-sampling the page *while it scrolls*. iOS hands the
+   scroll to the compositor and repaints the blurred strip a beat behind it, so the bar
+   visibly drifts and settles instead of staying nailed to the bottom edge. Going opaque
+   removes the per-frame sample entirely — the same surface the @supports fallback above
+   already ships to browsers without backdrop-filter, so it is a look the app has anyway.
+   translateZ(0) then keeps each bar on its own compositor layer rather than being
+   re-rastered with the content behind it. Neither bar has fixed-position descendants, so
+   the containing block a transform introduces changes nothing.
+   Desktop (min-width:1000px) keeps the glass: no collapsing browser chrome, and the scroll
+   is not handed off the same way. */
+@media (max-width:999px){
+  #tabbar,#timer{
+    -webkit-backdrop-filter:none;backdrop-filter:none;
+    transform:translateZ(0);
+  }
+  #tabbar{background:var(--bg-el)}
+  :root[data-theme="light"] #tabbar{background:#f9f9fb}
+  #timer{background:var(--surface)}
+}
+
 /* ------------------------------------------------------------ week strip -- */
 .week{display:flex;justify-content:space-between;gap:4px}
 .wday{

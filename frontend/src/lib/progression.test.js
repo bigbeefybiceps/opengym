@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   readSession, sessionsFor, stallCount, nextPrescription, applyPrescription,
-  policyFor, defaultIncrement, POLICIES_FOR, DELOAD_AFTER, MAX_BW_SETS
+  policyFor, defaultIncrement, strandedOverrides, POLICIES_FOR, DELOAD_AFTER, MAX_BW_SETS
 } from './progression.js'
 import { EXDB } from './exercises.js'
 
@@ -576,5 +576,28 @@ describe('drop-sets and rest-pause sets in progression', () => {
     const out = applyPrescription(sets, { kind: 'up', weight: 0, reps: 10, sets: 2 })
     expect(out).toHaveLength(2)
     expect(out[1]).toEqual({ type: 'dropset', w: 0, r: 10, done: false })
+  })
+})
+
+describe('per-exercise rules that would ignore a routine change', () => {
+  it('finds the reps exercises whose own rule differs from the new one', () => {
+    const routine = { prog: 'double', ex: [
+      { id: LIFT, prog: 'double' },        // stranded: keeps 'double'
+      { id: LIFT, prog: 'double-nd' },     // already the new rule
+      { id: LIFT }                          // follows the routine already
+    ] }
+    const out = strandedOverrides(routine, 'double-nd')
+    expect(out).toHaveLength(1)
+    expect(out[0].prog).toBe('double')
+  })
+
+  it('leaves a timed exercise alone — the routine has no rule to give it', () => {
+    const routine = { ex: [{ id: LIFT, mode: 'time', sec: 45, prog: 'time' }] }
+    expect(strandedOverrides(routine, 'double-nd')).toEqual([])
+  })
+
+  it('is empty for a routine with no overrides at all', () => {
+    expect(strandedOverrides({ ex: [{ id: LIFT }] }, 'linear')).toEqual([])
+    expect(strandedOverrides(null, 'linear')).toEqual([])
   })
 })

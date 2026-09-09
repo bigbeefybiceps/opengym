@@ -11,7 +11,7 @@ import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet } from '../she
 import Icon from '../components/Icon.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { Button, SelectRow } from '../components/ui.jsx'
-import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
+import { POLICIES_FOR, POLICY_NAME, POLICY_DESC, strandedOverrides } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 
@@ -38,6 +38,26 @@ export default function RoutineEdit() {
     cleanupSg(ex)
   })
 
+  // Changing the routine's rule is meant to change the routine. Exercises that set their own
+  // beat it (policyFor), so a plan that stamped a rule on every exercise — an import usually —
+  // leaves this picker doing visibly nothing. Say so, and offer the one-tap way out.
+  const setProg = v => {
+    update(s => { s.routines.find(x => x.id === id).prog = v })
+    const stranded = strandedOverrides(r, v)
+    if (!stranded.length) return
+    confirmSheet({
+      title: t('Apply to every exercise?'),
+      message: t('{0} exercises here set their own rule, so they will keep it and ignore this change. Clear those and let them follow “{1}”?', stranded.length, t(POLICY_NAME[v])),
+      confirmText: t('Clear overrides'),
+      cancelText: t('Leave them'),
+      onConfirm: () => update(s => {
+        const rt = s.routines.find(x => x.id === id)
+        const drop = new Set(strandedOverrides(rt, v))
+        rt.ex.forEach(e => { if (drop.has(e)) delete e.prog })
+      }),
+    })
+  }
+
   const units = supersetUnits(r.ex)
   const unitFirst = new Set(units.filter(u => u.length > 1).map(u => u[0]))
   const inSS = new Set(units.filter(u => u.length > 1).flat())
@@ -56,7 +76,7 @@ export default function RoutineEdit() {
 
     <div className="sect-b" style={{ marginBottom: 16 }}>
       <SelectRow icon="chartLine" title={t('Progression')} sheetTitle={t('Progression')}
-        value={r.prog || 'linear'} onChange={v => update(s => { s.routines.find(x => x.id === id).prog = v })}
+        value={r.prog || 'linear'} onChange={setProg}
         options={POLICIES_FOR.reps.map(p => ({ value: p, label: t(POLICY_NAME[p]), subtitle: t(POLICY_DESC[p]) }))} />
     </div>
     <div className="small dim" style={{ margin: '-10px 2px 16px' }}>
@@ -83,7 +103,10 @@ export default function RoutineEdit() {
         }}>
           <Thumb ex={ex} />
           <div className="grow"><div className="tt capitalize">{exerciseNameFor(ex)}</div><div className="ss">{exLine(e, S.unit)}</div>
-            {e.note && <div className="small dim" style={{ marginTop: 2 }}>{e.note}</div>}</div>
+            {e.note && <div className="small dim" style={{ marginTop: 2 }}>{e.note}</div>}
+            {e.prog && e.prog !== (r.prog || 'linear') && <div className="small dim" style={{ marginTop: 2 }}>
+              <Icon name="chartLine" style={{ fontSize: 11, marginRight: 4, verticalAlign: '-1px' }} />{t('Own rule: {0}', t(POLICY_NAME[e.prog]))}
+            </div>}</div>
           {noEquip && <span className="tag" style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }} title={t('Needs {0} — not in your active profile', t(ex.eq))}><Icon name="warning" /></span>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 'none', alignItems: 'center' }}>
             {i > 0 && <button className={'iconbtn' + (linkedPrev ? ' on-ss' : '')} title={t('Superset with exercise above')} style={{ width: 32, height: 28, borderRadius: 8, fontSize: 15 }} onClick={ev => { ev.stopPropagation(); toggleLink(i) }}><Icon name="link" /></button>}
