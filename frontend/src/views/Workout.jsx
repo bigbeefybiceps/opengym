@@ -95,11 +95,14 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   const mode = modeOf({ ...(entry.target || {}), id: entry.id })
   const cardio = mode === 'cardio'
   const timed = mode === 'time'
-  const last = lastEntryFor(S, entry.id)
+  // Scoped to the session's routine: the same exercise on another day is another progression
+  // with another target, and quoting it here is how upper day ends up showing arm day's sets.
+  const routineId = S.active.routineId
+  const last = lastEntryFor(S, entry.id, routineId)
   const standingNote = exNoteFor(S, entry.id)
   // Only worth surfacing while there is still work left: once the exercise is finished, a note
   // telling you what to do in it is behind you, and the block is already long.
-  const pinnedNote = entry.sets.some(s => !s.done) ? pinnedNoteFor(S, entry.id) : null
+  const pinnedNote = entry.sets.some(s => !s.done) ? pinnedNoteFor(S, entry.id, routineId) : null
   // The same number the "confirm your working weight" sheet calls your best, so the two
   // never disagree inside one session: heaviest logged set, or the working weight you kept.
   const best = cardio ? 0 : Math.max(bestWeightFor(S, entry.id), (S.exWeights[entry.id] || {}).w || 0)
@@ -206,7 +209,13 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       {t('From {0}:', fmtDate(pinnedNote.d, true))} {pinnedNote.note}
     </div>}
     {entry.note && <div className="exnote">{entry.note}</div>}
-    {last && <div className="small dim" style={{ marginBottom: 4 }}>{t('Last time')} ({fmtDate(last.d)}): {last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}</div>}
+    {/* The routine is named only when it is not this one — which happens when this routine has
+        never logged the exercise and the lookup fell back (historyFor). A bare date there reads
+        as "your last upper day" and quietly means something else. */}
+    {last && <div className="small dim" style={{ marginBottom: 4 }}>
+      {t('Last time')} ({fmtDate(last.d)}{last.routineId && last.routineId !== routineId
+        ? ' · ' + (S.routines.find(r => r.id === last.routineId)?.name || t('another routine')) : ''}): {last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}
+    </div>}
     {plan && plan.why && plan.kind !== 'off' && <div className={'progline' + (plan.kind === 'deload' ? ' warn' : '')}>
       <Icon name={plan.kind === 'up' ? 'arrowUp' : plan.kind === 'deload' ? 'arrowDown' : 'lightbulb'} />
       <span>{t(...plan.why)}</span>
@@ -551,7 +560,7 @@ function ActiveWorkout() {
       exConfigSheet(ex, null, cfg => update(s => {
         const full = { ...cfg, id: ex.id }
         const plan = freestyle ? null : nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
-        const sets = buildSets(s, full, { step: defaultIncrement(ex.id, s.unit), ...(freestyle ? { preferLast: true } : {}) })
+        const sets = buildSets(s, full, { step: defaultIncrement(ex.id, s.unit), routineId: s.active.routineId, ...(freestyle ? { preferLast: true } : {}) })
         const progressed = freestyle ? sets : applyPrescription(sets, plan, defaultIncrement(ex.id, s.unit))
         s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets: applyIntensifierPlan(progressed, full) })
         s.active.cur = s.active.entries.length - 1

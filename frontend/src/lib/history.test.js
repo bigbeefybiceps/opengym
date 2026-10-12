@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, bestWeightFor, bestWeightForEntry, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, workSetsDone, pairAdjacent, unpairSuperset, supersetUnits, applyIntensifierPlan, pinnedNoteFor, exNoteFor } from './history.js'
+import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, bestWeightFor, bestWeightForEntry, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, workSetsDone, pairAdjacent, unpairSuperset, supersetUnits, applyIntensifierPlan, pinnedNoteFor, exNoteFor, historyFor, lastEntryFor } from './history.js'
 import { EXDB } from './exercises.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
@@ -843,5 +843,93 @@ describe('exNoteFor', () => {
     expect(exNoteFor({ exNotes: { '0025': ' seat 4, pin 7 ' } }, '0025')).toBe('seat 4, pin 7')
     expect(exNoteFor({ exNotes: { '0025': '   ' } }, '0025')).toBeNull()
     expect(exNoteFor({}, '0025')).toBeNull()
+  })
+})
+
+/* A pin is a message to your next self, so it has to be spent once that self has read it. */
+describe('pinnedNoteFor delivery', () => {
+  const sets = [{ w: 60, r: 8, done: true }]
+  const session = (d, routineId, entries) => ({ d, routineId, entries })
+  const note = (id, text) => ({ id, sets, note: text, notePin: true })
+
+  it('shows the note in the next session of that routine', () => {
+    const S = { workouts: [session('2026-08-01', 'r-up', [note('0025', 'go narrower')])] }
+    expect(pinnedNoteFor(S, '0025', 'r-up')).toEqual({ note: 'go narrower', d: '2026-08-01' })
+  })
+
+  it('goes quiet once a later session of that routine has trained it', () => {
+    const S = { workouts: [
+      session('2026-08-01', 'r-up', [note('0025', 'go narrower')]),
+      session('2026-08-08', 'r-up', [{ id: '0025', sets }]),
+    ] }
+    expect(pinnedNoteFor(S, '0025', 'r-up')).toBeNull()
+  })
+
+  it('survives a later session that dropped the exercise — it was never shown', () => {
+    const S = { workouts: [
+      session('2026-08-01', 'r-up', [note('0025', 'go narrower')]),
+      session('2026-08-08', 'r-up', [{ id: '0293', sets }]),
+    ] }
+    expect(pinnedNoteFor(S, '0025', 'r-up')).toEqual({ note: 'go narrower', d: '2026-08-01' })
+  })
+
+  it('is not spent, or shown, by another routine that shares the exercise', () => {
+    const S = { workouts: [
+      session('2026-08-01', 'r-up', [note('0025', 'go narrower')]),
+      session('2026-08-03', 'r-arms', [{ id: '0025', sets }]),
+    ] }
+    expect(pinnedNoteFor(S, '0025', 'r-up')).toEqual({ note: 'go narrower', d: '2026-08-01' })
+    expect(pinnedNoteFor(S, '0025', 'r-arms')).toBeNull()
+  })
+
+  it('still reads across everything for a freestyle session', () => {
+    const S = { workouts: [session('2026-08-01', 'r-up', [note('0025', 'go narrower')])] }
+    expect(pinnedNoteFor(S, '0025')).toEqual({ note: 'go narrower', d: '2026-08-01' })
+  })
+})
+
+/* The same exercise in two routines is two progressions; "last time" has to pick the right one. */
+describe('history scoped to a routine', () => {
+  const entry = (id, w, r) => ({ id, sets: [{ w, r, done: true }] })
+  const S = { workouts: [
+    { d: '2026-08-01', routineId: 'r-up', entries: [entry('0025', 60, 8)] },
+    { d: '2026-08-03', routineId: 'r-arms', entries: [entry('0025', 25, 12)] },
+    { d: '2026-08-08', routineId: 'r-up', entries: [entry('0025', 62.5, 8)] },
+    { d: '2026-08-10', routineId: 'r-arms', entries: [entry('0025', 27.5, 12)] },
+  ] }
+
+  it('takes last time from the same routine, not from whatever was most recent', () => {
+    expect(lastEntryFor(S, '0025', 'r-up').sets[0]).toMatchObject({ w: 62.5 })
+    expect(lastEntryFor(S, '0025', 'r-arms').sets[0]).toMatchObject({ w: 27.5 })
+  })
+
+  it('reports which routine the numbers came from', () => {
+    expect(lastEntryFor(S, '0025', 'r-up').routineId).toBe('r-up')
+  })
+
+  it('reads across everything when no routine is given', () => {
+    expect(lastEntryFor(S, '0025').sets[0]).toMatchObject({ w: 27.5 })
+  })
+
+  it('borrows the global history when this routine has never trained it', () => {
+    const last = lastEntryFor(S, '0025', 'r-legs')
+    expect(last.sets[0]).toMatchObject({ w: 27.5 })
+    expect(last.routineId).toBe('r-arms')      // and says so, so the card can label it
+  })
+
+  it('does not count a session where the exercise was planned but never logged', () => {
+    const planned = { workouts: [
+      ...S.workouts,
+      { d: '2026-08-15', routineId: 'r-legs', entries: [{ id: '0025', sets: [{ w: 0, r: 0, done: false }] }] },
+    ] }
+    expect(historyFor(planned, '0025', 'r-legs')).toHaveLength(4)   // fell back, not a history of one
+  })
+
+  it('ignores a warm-up-only session the same way volume and records do', () => {
+    const warm = { workouts: [
+      { d: '2026-08-01', routineId: 'r-up', entries: [{ id: '0025', sets: [{ w: 30, r: 5, done: true, phase: 'warmup' }] }] },
+    ] }
+    expect(historyFor(warm, '0025', 'r-up')).toEqual([])
+    expect(lastEntryFor(warm, '0025', 'r-up')).toBeNull()
   })
 })

@@ -1072,7 +1072,7 @@ export function logPastWorkout(iso, routineId) {
   let w
   update(s => {
     const entries = r.ex.map(cfg => {
-      const sets = buildSets(s, cfg).filter(x => !isWarmupRow(x)).map(x => ({ ...x, done: true }))
+      const sets = buildSets(s, cfg, { routineId: r.id }).filter(x => !isWarmupRow(x)).map(x => ({ ...x, done: true }))
       const top = Math.max(0, ...sets.map(x => x.w || 0))
       return { id: cfg.id, target: { ...cfg }, sets, topW: top > 0 ? top : null }
     })
@@ -1140,7 +1140,7 @@ export function beginWorkout(routineId, bw) {
   const entries = (r ? r.ex : []).map(cfg => {
     const plan = nextPrescription(st, cfg, r)
     const step = defaultIncrement(cfg.id, st.unit)
-    const sets = applyIntensifierPlan(applyPrescription(buildSets(st, cfg, { step }), plan, step), cfg)
+    const sets = applyIntensifierPlan(applyPrescription(buildSets(st, cfg, { step, routineId: r && r.id }), plan, step), cfg)
     return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets }
   })
   update(s => {

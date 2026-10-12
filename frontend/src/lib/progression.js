@@ -16,7 +16,7 @@
 //   · fewer sets than prescribed                       → miss
 // So a session that fell apart can never advance the load as though it had succeeded.
 
-import { modeOf, repStep, rerampWarmups } from './history.js'
+import { modeOf, repStep, rerampWarmups, historyFor } from './history.js'
 import { EXIDX } from './exercises.js'
 import { isWarmupRow } from './workout-model.js'
 
@@ -149,10 +149,18 @@ export function readSession(entry, fallback) {
   }
 }
 
-/** Every past session for one exercise, oldest first. `fallback` — see readSession. */
-export function sessionsFor(S, exId, fallback) {
+/**
+ * Every past session for one exercise, oldest first. `fallback` — see readSession.
+ *
+ * `routineId` scopes the history the same way the "last time" line does (historyFor), and for
+ * the same reason: an exercise trained in two routines at two different targets has two
+ * separate progressions, and judging one by the other's sets invents stalls that never
+ * happened. The two have to agree — a prescription argued from sets the card never showed is
+ * the one number in the app nobody can check.
+ */
+export function sessionsFor(S, exId, fallback, routineId) {
   const out = []
-  ;(S.workouts || []).forEach(w => {
+  historyFor(S, exId, routineId).forEach(w => {
     const entry = w.entries.find(e => e.id === exId)
     if (entry && entry.sets.some(s => s.done && !isWarmupRow(s))) out.push({ d: w.d, ...readSession(entry, fallback) })
   })
@@ -184,7 +192,7 @@ export function nextPrescription(S, cfg, routine) {
   const inc = cfg.inc > 0 ? cfg.inc : (mode === 'time' ? DEFAULT_SEC_INCREMENT : defaultIncrement(cfg.id, unit))
   if (policy === 'off') return { policy, kind: 'off' }
 
-  const sessions = sessionsFor(S, cfg.id, cfg).filter(s => s.mode === mode)
+  const sessions = sessionsFor(S, cfg.id, cfg, routine && routine.id).filter(s => s.mode === mode)
   const last = sessions[sessions.length - 1]
   if (!last) return { policy, kind: 'first', why: ['Nothing logged yet — this session sets the baseline.'] }
 

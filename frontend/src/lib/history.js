@@ -206,9 +206,34 @@ export function unpairSuperset(items, idx) {
   return next
 }
 
-export function lastEntryFor(S, exId) {
-  for (let i = S.workouts.length - 1; i >= 0; i--) {
-    const en = S.workouts[i].entries.find(e => e.id === exId)
+/**
+ * The workouts that count as this exercise's history for a session of `routineId`.
+ *
+ * One exercise can sit in two routines with two different jobs — a preacher curl that is a
+ * heavy 2x6-8 on upper day and a one-set finisher on arm day. Read across both and each
+ * session quotes the other's numbers back at you: "last time" shows the finisher's weight on
+ * upper day, and the progression rule judges a stall from sets that were never meant to be
+ * compared. Scoping to the routine keeps the two apart.
+ *
+ * Only workouts with a real logged set count, so an exercise added to a routine but never
+ * trained in it does not starve the fallback: a routine with no history of its own borrows
+ * the global one, which is the difference between an unfamiliar exercise opening at your
+ * actual working weight and opening at the config sheet's default. Freestyle has no routine
+ * to scope to and reads everything, as it always did.
+ */
+export function historyFor(S, exId, routineId) {
+  const trained = w => (w.entries || []).some(e =>
+    e.id === exId && (e.sets || []).some(x => x.done && !isWarmupRow(x)))
+  const all = (S?.workouts || []).filter(trained)
+  if (!routineId) return all
+  const mine = all.filter(w => w.routineId === routineId)
+  return mine.length ? mine : all
+}
+
+export function lastEntryFor(S, exId, routineId) {
+  const scope = historyFor(S, exId, routineId)
+  for (let i = scope.length - 1; i >= 0; i--) {
+    const en = scope[i].entries.find(e => e.id === exId)
     if (!en) continue
     // Work sets only. Every caller asks the same question — "what did you actually lift last
     // time" — to seed the next session's rows, to size a freestyle config, and to print "Last
@@ -220,7 +245,9 @@ export function lastEntryFor(S, exId) {
     // `target` is what the session prescribed; finished workouts carry it so labels and the
     // progression engine can read a session back the way it was logged. Older workouts have
     // none — modeOf() falls back to the body part for them, which is what they were.
-    if (done.length) return { d: S.workouts[i].d, sets: done, target: en.target || null }
+    // `routineId` rides along so a caller can say where the numbers came from — the fallback
+    // above can hand back another routine's session, and a date alone does not explain that.
+    if (done.length) return { d: scope[i].d, routineId: scope[i].routineId || null, sets: done, target: en.target || null }
   }
   return null
 }
@@ -238,13 +265,27 @@ export const NOTE_MAX = 500
  *
  * Only the newest pinned note is returned: a pin is a message to your next self, and a stack of
  * them from six sessions ago is noise, not context.
+ *
+ * And only to your next self. "Show me this next time" is one delivery, not a subscription: a
+ * cue you left for the following session is spent once that session has been trained, and a
+ * note that never expires becomes wallpaper you stop reading. So the note shows until a later
+ * session of the same routine has the exercise in it, and then goes quiet. The session you are
+ * in the middle of is not in the log yet, which is exactly why it still shows today.
+ *
+ * Scoped to the routine like everything else here (historyFor): a cue written for upper day is
+ * about upper day, and it should not surface on arm day because the two share a movement. A
+ * later session that dropped the exercise does not spend the note — it was never shown.
  */
-export function pinnedNoteFor(S, exId) {
-  const workouts = S?.workouts || []
-  for (let i = workouts.length - 1; i >= 0; i--) {
-    const en = (workouts[i].entries || []).find(e => e.id === exId)
+export function pinnedNoteFor(S, exId, routineId) {
+  const all = S?.workouts || []
+  const scope = routineId ? all.filter(w => w.routineId === routineId) : all
+  for (let i = scope.length - 1; i >= 0; i--) {
+    const en = (scope[i].entries || []).find(e => e.id === exId)
     const note = (en?.note || '').trim()
-    if (note && en.notePin) return { note, d: workouts[i].d }
+    if (!note || !en.notePin) continue
+    const delivered = scope.slice(i + 1).some(w => (w.entries || []).some(e => e.id === exId))
+    // Older pins are staler still, so a spent note ends the search rather than continuing it.
+    return delivered ? null : { note, d: scope[i].d }
   }
   return null
 }
@@ -308,7 +349,7 @@ export function buildSets(S, cfg, options = {}) {
 export const MAX_PLANNED_WARMUPS = 5
 
 function buildWorkSets(S, cfg, options = {}) {
-  const last = lastEntryFor(S, cfg.id)
+  const last = lastEntryFor(S, cfg.id, options.routineId)
   const n = Math.max(1, cfg.sets || 1)
   const mode = modeOf(cfg)
   const preferLast = !!options.preferLast

@@ -601,3 +601,32 @@ describe('per-exercise rules that would ignore a routine change', () => {
     expect(strandedOverrides(null, 'linear')).toEqual([])
   })
 })
+
+/* The prescription has to be argued from the same sets the card shows (historyFor), or the one
+   number in the app nobody can check disagrees with the one line that explains it. */
+describe('progression scoped to a routine', () => {
+  const sets = (w, ...reps) => reps.map(r => ({ w, r, done: true }))
+  const S = { unit: 'kg', workouts: [
+    // heavy on upper day, a light finisher on arm day, same movement
+    { d: '2026-08-01', routineId: 'r-up', entries: [{ id: LIFT, sets: sets(60, 8, 8), target: { sets: 2, reps: 8, repsMin: 6 } }] },
+    { d: '2026-08-03', routineId: 'r-arms', entries: [{ id: LIFT, sets: sets(25, 5, 5), target: { sets: 2, reps: 8, repsMin: 6 } }] },
+  ] }
+  const cfg = { id: LIFT, sets: 2, reps: 8, repsMin: 6, weight: 60, prog: 'double' }
+
+  it('judges upper day on upper day sets — a clean session, so the weight goes up', () => {
+    const p = nextPrescription(S, cfg, { id: 'r-up', prog: 'double' })
+    expect(p.kind).toBe('up')
+    expect(p.weight).toBe(62.5)
+  })
+
+  it('judges arm day on arm day sets — short of the range, so it holds', () => {
+    const p = nextPrescription(S, cfg, { id: 'r-arms', prog: 'double' })
+    expect(p.kind).toBe('hold')
+    expect(p.weight).toBe(25)
+  })
+
+  it('without a routine it still reads everything, as it always did', () => {
+    const p = nextPrescription(S, cfg, null)
+    expect(p.weight).toBe(25)          // the arm-day session was simply the most recent
+  })
+})
