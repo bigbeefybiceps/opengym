@@ -209,12 +209,16 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       {t('From {0}:', fmtDate(pinnedNote.d, true))} {pinnedNote.note}
     </div>}
     {entry.note && <div className="exnote">{entry.note}</div>}
-    {/* The routine is named only when it is not this one — which happens when this routine has
-        never logged the exercise and the lookup fell back (historyFor). A bare date there reads
-        as "your last upper day" and quietly means something else. */}
-    {last && <div className="small dim" style={{ marginBottom: 4 }}>
-      {t('Last time')} ({fmtDate(last.d)}{last.routineId && last.routineId !== routineId
-        ? ' · ' + (S.routines.find(r => r.id === last.routineId)?.name || t('another routine')) : ''}): {last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}
+    {/* A planned session only ever reads its own routine's history, so there is nothing to
+        name. Freestyle reads across everything, and there the session it found is worth
+        naming — a bare date reads as "last time you did this" and means a different day. */}
+    {last && <div className="lastline">
+      <Icon name="history" />
+      <span>
+        {t('Last time')} ({fmtDate(last.d)}){last.routineId && last.routineId !== routineId
+          ? <span className="src"> · {S.routines.find(r => r.id === last.routineId)?.name || t('another routine')}</span> : ''}
+        : <b>{last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}</b>
+      </span>
     </div>}
     {plan && plan.why && plan.kind !== 'off' && <div className={'progline' + (plan.kind === 'deload' ? ' warn' : '')}>
       <Icon name={plan.kind === 'up' ? 'arrowUp' : plan.kind === 'deload' ? 'arrowDown' : 'lightbulb'} />

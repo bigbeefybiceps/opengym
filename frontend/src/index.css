@@ -654,6 +654,21 @@ h4.sec{
 .setextra .chip.add svg{width:13px;height:13px}
 .setextra .chip.add:disabled{opacity:.35}
 /* why the next target is what it is (issue #17) */
+/* "Last time" is the number you are about to beat, so it reads as information rather than as
+   the dim grey caption it used to share with every other aside on the card: its own icon, its
+   own colour, and the sets themselves at full strength.
+
+   Teal rather than the accent, and deliberately: the progression line sits directly beneath
+   it in the accent colour, and two accent-coloured lines in a row read as one sentence. Teal
+   also stays distinct from the accent whichever one is picked in Settings. */
+.lastline{
+  display:flex;align-items:flex-start;gap:7px;margin:6px 0 4px;
+  font-size:14px;line-height:1.38;color:var(--teal);
+}
+.lastline svg{flex:none;margin-top:2px}
+.lastline b{font-weight:600}
+.lastline .src{opacity:.75}
+
 .progline{
   display:flex;align-items:flex-start;gap:7px;margin:6px 0 2px;
   font-size:13px;line-height:1.38;color:var(--acc);

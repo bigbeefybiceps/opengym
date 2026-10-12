@@ -911,10 +911,11 @@ describe('history scoped to a routine', () => {
     expect(lastEntryFor(S, '0025').sets[0]).toMatchObject({ w: 27.5 })
   })
 
-  it('borrows the global history when this routine has never trained it', () => {
-    const last = lastEntryFor(S, '0025', 'r-legs')
-    expect(last.sets[0]).toMatchObject({ w: 27.5 })
-    expect(last.routineId).toBe('r-arms')      // and says so, so the card can label it
+  it('has nothing to say when this routine has never trained it', () => {
+    // An honest blank beats another day's numbers: the card shows no "last time" at all, the
+    // weight comes from the plan, and progression treats the session as the baseline.
+    expect(historyFor(S, '0025', 'r-legs')).toEqual([])
+    expect(lastEntryFor(S, '0025', 'r-legs')).toBeNull()
   })
 
   it('does not count a session where the exercise was planned but never logged', () => {
@@ -922,7 +923,8 @@ describe('history scoped to a routine', () => {
       ...S.workouts,
       { d: '2026-08-15', routineId: 'r-legs', entries: [{ id: '0025', sets: [{ w: 0, r: 0, done: false }] }] },
     ] }
-    expect(historyFor(planned, '0025', 'r-legs')).toHaveLength(4)   // fell back, not a history of one
+    expect(historyFor(planned, '0025', 'r-legs')).toEqual([])
+    expect(lastEntryFor(planned, '0025', 'r-legs')).toBeNull()
   })
 
   it('ignores a warm-up-only session the same way volume and records do', () => {

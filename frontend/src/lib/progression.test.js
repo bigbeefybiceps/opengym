@@ -629,4 +629,10 @@ describe('progression scoped to a routine', () => {
     const p = nextPrescription(S, cfg, null)
     expect(p.weight).toBe(25)          // the arm-day session was simply the most recent
   })
+
+  it('treats a routine that has never trained it as a baseline, not a borrowed stall', () => {
+    const p = nextPrescription(S, cfg, { id: 'r-legs', prog: 'double' })
+    expect(p.kind).toBe('first')
+    expect(p.weight).toBeUndefined()   // the plan's own weight stands
+  })
 })

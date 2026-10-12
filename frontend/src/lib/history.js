@@ -215,19 +215,21 @@ export function unpairSuperset(items, idx) {
  * upper day, and the progression rule judges a stall from sets that were never meant to be
  * compared. Scoping to the routine keeps the two apart.
  *
- * Only workouts with a real logged set count, so an exercise added to a routine but never
- * trained in it does not starve the fallback: a routine with no history of its own borrows
- * the global one, which is the difference between an unfamiliar exercise opening at your
- * actual working weight and opening at the config sheet's default. Freestyle has no routine
- * to scope to and reads everything, as it always did.
+ * Only workouts with a real logged set count: an exercise planned into a routine but never
+ * actually trained in it has no history there, and a warm-up-only session is not a session,
+ * the same way it is not volume and not a record.
+ *
+ * A routine with no history of its own gets nothing rather than a borrowed answer. "Last
+ * time" has to mean last time *here* without a footnote, and a number carried over from
+ * another day is worth less than an honest blank — the card simply says nothing, the weight
+ * falls back to the plan, and the progression rule treats the session as the baseline it is.
+ * Freestyle has no routine to scope to and reads everything, as it always did.
  */
 export function historyFor(S, exId, routineId) {
   const trained = w => (w.entries || []).some(e =>
     e.id === exId && (e.sets || []).some(x => x.done && !isWarmupRow(x)))
   const all = (S?.workouts || []).filter(trained)
-  if (!routineId) return all
-  const mine = all.filter(w => w.routineId === routineId)
-  return mine.length ? mine : all
+  return routineId ? all.filter(w => w.routineId === routineId) : all
 }
 
 export function lastEntryFor(S, exId, routineId) {
