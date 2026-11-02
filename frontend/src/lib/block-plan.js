@@ -40,6 +40,28 @@ export function blockPlanStatus(S, todayIso) {
   return {
     week, cycleWeek, suggested,
     deload: cycleWeek === BLOCK_WEEKS + 1,
+    intro: cycleWeek === 1,
+    // The two weeks the program deliberately pulls effort back on: the intro that opens a
+    // cycle and the deload that opens Block 2. They are the same week in different clothes —
+    // the plan prescribes identical, easier RIR targets for both — so one flag covers them.
+    easy: cycleWeek === 1 || cycleWeek === BLOCK_WEEKS + 1,
     phaseKey: Math.floor((week - 1) / CYCLE_WEEKS) + ':' + suggested,
   }
+}
+
+/**
+ * The RIR targets an exercise prescribes on a given week.
+ *
+ * Nearly every set in this program is taken to failure or one rep shy of it; the intro and
+ * deload weeks are the stated exceptions, and the plan gives them their own numbers rather
+ * than a rule — the squat drops from "1, 0" to "3, 2" while a hip abduction stays at 0, so
+ * nothing you could derive by adding one would come out right.
+ *
+ * `cfg.rirEasy` is that second set of targets. An exercise without one keeps its usual RIR,
+ * which is what an exercise the program never eases off on should do.
+ */
+export function rirFor(cfg, status) {
+  if (!cfg) return undefined
+  const eased = Array.isArray(cfg.rirEasy) && cfg.rirEasy.length
+  return (status && status.easy && eased) ? cfg.rirEasy : cfg.rir
 }

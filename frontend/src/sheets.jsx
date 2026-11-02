@@ -23,6 +23,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDou
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
+import { blockPlanStatus, rirFor } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
 
 const S = () => useStore.getState().S
@@ -618,6 +619,7 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
       // Imported-plan extras with no editor UI of their own (target RIR per set, block-2
       // intensity technique) survive a round-trip through this sheet instead of being dropped.
       if (Array.isArray(c.rir) && c.rir.length) out.rir = c.rir
+      if (Array.isArray(c.rirEasy) && c.rirEasy.length) out.rirEasy = c.rirEasy
       if (c.b2) out.b2 = c.b2
       if (isDoubleLike(policyFor({ ...c, id: ex.id }, routine, 'reps'))) out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
       // A ceiling below the working reps would tell you to add a set on day one.
@@ -1071,10 +1073,11 @@ export function logPastWorkout(iso, routineId) {
   if (!r) return null
   let w
   update(s => {
+    const week = blockPlanStatus(s, iso)
     const entries = r.ex.map(cfg => {
       const sets = buildSets(s, cfg, { routineId: r.id }).filter(x => !isWarmupRow(x)).map(x => ({ ...x, done: true }))
       const top = Math.max(0, ...sets.map(x => x.w || 0))
-      return { id: cfg.id, target: { ...cfg }, sets, topW: top > 0 ? top : null }
+      return { id: cfg.id, target: targetFor(cfg, week), sets, topW: top > 0 ? top : null }
     })
     const startMs = new Date(iso + 'T12:00:00').getTime()
     w = { id: uid(), d: iso, start: startMs, end: startMs + 60 * 60000, routineId: r.id, name: r.name, entries, prs: [] }
@@ -1131,17 +1134,29 @@ export function startFlow(routineId) {
   if (st.askWeighIn === false) { beginWorkout(routineId, lastBW(st)?.w ?? null); return }
   bwSheet({ required: true, onDone: bw => beginWorkout(routineId, bw) })
 }
+// What the session prescribed for one exercise. The plan's two RIR arrays collapse to the
+// one this week actually asks for: `target` is the record of what you were told to do, and
+// the alternative you were not told to do has no business in it.
+function targetFor(cfg, week) {
+  const { rirEasy, ...rest } = cfg
+  const rir = rirFor(cfg, week)
+  return rir ? { ...rest, rir } : rest
+}
 export function beginWorkout(routineId, bw) {
   const st = S()
   const r = routineId ? st.routines.find(x => x.id === routineId) : null
   // The prescription is applied as the session is built, so you walk up to the bar with the
   // right weight already on the screen instead of being told about it afterwards. `plan` is
   // kept on the entry purely so the workout can explain the number it chose.
+  // Which week of the periodised plan this session falls in, resolved once: the intro and
+  // deload weeks prescribe their own RIR (see rirFor). It is stamped onto the target rather
+  // than read live, so a session opened in February still shows the RIR it was trained to.
+  const week = blockPlanStatus(st, todayISO())
   const entries = (r ? r.ex : []).map(cfg => {
     const plan = nextPrescription(st, cfg, r)
     const step = defaultIncrement(cfg.id, st.unit)
     const sets = applyIntensifierPlan(applyPrescription(buildSets(st, cfg, { step, routineId: r && r.id }), plan, step), cfg)
-    return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets }
+    return { id: cfg.id, sg: cfg.sg, target: targetFor(cfg, week), plan, sets }
   })
   update(s => {
     s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }

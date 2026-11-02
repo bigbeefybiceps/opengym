@@ -14,6 +14,7 @@ import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeigh
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription, defaultIncrement } from '../lib/progression.js'
+import { blockPlanStatus } from '../lib/block-plan.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { isWarmupRow, isDropSet, isRestPauseSet, dropsOf, clustersOf, addDrop, addCluster, removeDropAt, removeClusterAt, setDropAt, setClusterAt, nextDropWeight, nextBurstReps } from '../lib/workout-model.js'
 
@@ -98,6 +99,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   // Scoped to the session's routine: the same exercise on another day is another progression
   // with another target, and quoting it here is how upper day ends up showing arm day's sets.
   const routineId = S.active.routineId
+  const week = blockPlanStatus(S, S.active.d)
   const last = lastEntryFor(S, entry.id, routineId)
   const standingNote = exNoteFor(S, entry.id)
   // Only worth surfacing while there is still work left: once the exercise is finished, a note
@@ -191,6 +193,12 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
           reserve, last set to failure) — what the program asks for, not what you log. */}
       {mode === 'reps' && Array.isArray(cfg.rir) && cfg.rir.length > 0 &&
         <span className="tag nocap" style={{ color: 'var(--acc)' }}><Icon name="target" />{'RIR ' + cfg.rir.join(' · ')}</span>}
+      {/* Why the RIR is softer than usual. The plan eases off twice in twelve weeks and the
+          numbers above change without explanation otherwise — and an unexplained easy target
+          is one you talk yourself out of following. Read from the session's own date, so a
+          session reviewed later still says which week it was. */}
+      {mode === 'reps' && week?.easy &&
+        <span className="tag nocap" style={{ color: 'var(--yellow)' }}><Icon name="bolt" />{week.intro ? t('Intro week') : t('Deload week')}</span>}
     </div>
     {/* A periodised plan's block-2 intensity technique for the last working set, shown only
         while block 2 is selected (Settings → During a workout → Training block). */}
