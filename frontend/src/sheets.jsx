@@ -21,7 +21,7 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDoubleLike, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
-import { buildCompletedWorkout } from './lib/finish-workout.js'
+import { buildCompletedWorkout, resumeWorkout, activeMs } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
 import { blockPlanStatus, rirFor } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
@@ -1128,11 +1128,33 @@ export function WorkoutRow({ w, onClick }) {
 
 /* ============================ workout lifecycle ============================ */
 export function startFlow(routineId) {
+  const st = S()
+  // Already trained this routine today? Pick that session back up rather than opening a
+  // second one against the same plan. Only the same routine: re-plan the day and Start means
+  // what it always did, which is the whole of "unless the planned routine changed".
+  const prior = routineId && [...(st.workouts || [])].reverse()
+    .find(w => w.d === todayISO() && w.routineId === routineId)
+  if (prior) { resumeFlow(prior); return }
   // The check-in can be turned off (Settings → During a workout) — the session then starts
   // immediately and records the last known body weight instead of asking for a fresh one.
-  const st = S()
+  // A reopened session never asks: you weighed in when it started.
   if (st.askWeighIn === false) { beginWorkout(routineId, lastBW(st)?.w ?? null); return }
   bwSheet({ required: true, onDone: bw => beginWorkout(routineId, bw) })
+}
+
+/** Whether tapping Start on this routine today would reopen a session rather than begin one. */
+export function finishedToday(S0, routineId) {
+  return !!(routineId && (S0.workouts || []).some(w => w.d === todayISO() && w.routineId === routineId))
+}
+
+function resumeFlow(w) {
+  update(s => {
+    s.workouts = s.workouts.filter(x => x.id !== w.id)
+    s.active = resumeWorkout(w)
+  })
+  useUI.getState().stopRest()
+  nav('/workout')
+  toast(t('Picked up where you left off'))
 }
 // What the session prescribed for one exercise. The plan's two RIR arrays collapse to the
 // one this week actually asks for: `target` is the record of what you were told to do, and
@@ -1504,7 +1526,9 @@ function doFinishWorkout() {
     if (rec && !prs.includes(e.id)) e1prs.push({ id: e.id, ...rec })
   })
   const w = buildCompletedWorkout(A, {
-    end: Date.now(),
+    // Not Date.now(): a session reopened in the evening would otherwise report the whole
+    // afternoon as training time, in the month's minutes and in the heatmap.
+    end: A.start + activeMs(A),
     prs,
     snapshotFor: e => EXIDX[e.id]?.custom ? exerciseMuscleSnapshot(EXIDX[e.id]) : null,
   })

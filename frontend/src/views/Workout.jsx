@@ -9,8 +9,9 @@ import { beep, vibrate } from '../lib/sound.js'
 import { t, exerciseNameFor } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import { setProgressHighWater, supersetFlowStep, restAfterSet, restOnRecheck } from '../lib/supersetFlow.js'
+import { elapsedStart } from '../lib/finish-workout.js'
 import Media from '../components/Media.jsx'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, plateCalcSheet, finishWorkout, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet } from '../sheets.jsx'
+import { startFlow, finishedToday, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, plateCalcSheet, finishWorkout, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription, defaultIncrement } from '../lib/progression.js'
@@ -33,13 +34,16 @@ function StartChooser() {
         <div><div className="big">{todayR.name}</div><div className="muted small">{exCount(todayR.ex.length)}</div></div>
         <span className="lrow-i" style={{ width: 38, height: 38, borderRadius: 9, fontSize: 22 }}><Icon name={glyphOf(todayR.emoji)} /></span>
       </div>
-      <Button variant="primary" icon="play" onClick={() => startFlow(todayR.id)}>{t('Start {0}', todayR.name)}</Button>
+      {/* Naming it, because the button does two different things depending on the day. */}
+      <Button variant="primary" icon={finishedToday(S, todayR.id) ? 'history' : 'play'} onClick={() => startFlow(todayR.id)}>
+        {finishedToday(S, todayR.id) ? t('Reopen {0}', todayR.name) : t('Start {0}', todayR.name)}
+      </Button>
     </div>}
     {others.length > 0 && <><h4 className="sec">{t('Other routines')}</h4>
       <div className="list">{others.map(r => <div key={r.id} className="item" onClick={() => startFlow(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-        <span className="tag acc">{t('Start')}</span></div>)}</div></>}
+        <span className="tag acc">{finishedToday(S, r.id) ? t('Reopen') : t('Start')}</span></div>)}</div></>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow(null)}>{t('Freestyle workout (pick as you go)')}</Button>
     {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
@@ -532,8 +536,28 @@ function ActiveWorkout() {
 
   return <div className="narrow">
     <div className="hdr">
-      <button className="iconbtn" aria-label={t('Discard')} onClick={() => confirmSheet({ title: t('Discard workout?'), message: t('The sets you logged in this session will be lost.'), confirmText: t('Discard'), danger: true, onConfirm: () => { update(s => { s.active = null }); stopRest(); nav('/home') } })}><Icon name="xmark" /></button>
-      <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 600 }}>{A.name}</div><div className="sub"><Elapsed start={A.start} /> · {t('{0} sets', done + '/' + total)}</div></div>
+      {/* Discarding a reopened session puts the finished one back exactly as it was — the
+          reopen is undone, not the workout. Only a session that was never saved can be lost
+          here, and the wording says which of the two you are about to do. */}
+      <button className="iconbtn" aria-label={t('Discard')} onClick={() => confirmSheet({
+        title: A.resumed ? t('Close without saving changes?') : t('Discard workout?'),
+        message: A.resumed
+          ? t('Today’s session goes back to how it was saved. Anything you changed since reopening it is dropped.')
+          : t('The sets you logged in this session will be lost.'),
+        confirmText: A.resumed ? t('Close') : t('Discard'),
+        danger: true,
+        onConfirm: () => {
+          update(s => {
+            const prev = s.active?.resumed?.prev
+            if (prev && !s.workouts.some(x => x.id === prev.id)) {
+              s.workouts = [...s.workouts, prev].sort((a, b) => (a.d < b.d ? -1 : 1))
+            }
+            s.active = null
+          })
+          stopRest(); nav('/home')
+        },
+      })}><Icon name="xmark" /></button>
+      <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 600 }}>{A.name}</div><div className="sub"><Elapsed start={elapsedStart(A)} /> · {t('{0} sets', done + '/' + total)}</div></div>
       <button className="iconbtn" style={{ color: 'var(--acc)' }} aria-label={t('Finish')} onClick={finishWorkout}><Icon name="check" /></button>
     </div>
     <div className="wprog"><i style={{ width: (total ? done / total * 100 : 0) + '%' }} /></div>

@@ -27,6 +27,12 @@ export const durPart = ms => (ms >= 60000 ? [fmtDur(ms)] : [])
 // Numbers follow the UI language, like the dates above — a hardcoded locale put Swiss
 // apostrophes ("7'535 kg") in front of every user, in every language.
 export const fmtNum = n => (Math.round(n * 10) / 10).toLocaleString(dateLocale())
+// A load is not a rounded quantity. 38.75 kg is a number you can put on a machine, and
+// fmtNum's single decimal prints it as 38.8 — a weight that is not on the stack and not what
+// you lifted. Keeps every digit it is given, to a ceiling no plate goes past, and never grows
+// a trailing zero: 60 stays "60".
+export const fmtLoad = n => (Math.round((n || 0) * 1000) / 1000)
+  .toLocaleString(dateLocale(), { maximumFractionDigits: 3 })
 // Plate sizes carry a second decimal that matters: 1.25 kg is a plate you can pick up, and
 // fmtNum's single decimal prints it as "1.3" — a weight stamped on nothing.
 export const fmtPlate = n => (Math.round((n || 0) * 100) / 100).toLocaleString(dateLocale())

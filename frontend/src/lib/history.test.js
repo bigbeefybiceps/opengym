@@ -935,3 +935,16 @@ describe('history scoped to a routine', () => {
     expect(lastEntryFor(warm, '0025', 'r-up')).toBeNull()
   })
 })
+
+describe('set labels keep the load exactly', () => {
+  it('does not round a weight you can actually load', () => {
+    // fmtNum rounds to one decimal and prints 38.75 as "38.8" — not a number on the stack.
+    expect(setLabel('0175', { w: 38.75, r: 8 }, { reps: 8 })).toBe('38.75×8')
+    expect(setLabel('0175', { w: 31.25, r: 6 }, { reps: 8 })).toBe('31.25×6')
+  })
+
+  it('never grows a trailing zero', () => {
+    expect(setLabel('0175', { w: 60, r: 8 }, { reps: 8 })).toBe('60×8')
+    expect(setLabel('0175', { w: 62.5, r: 8 }, { reps: 8 })).toBe('62.5×8')
+  })
+})
