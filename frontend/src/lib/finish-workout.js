@@ -1,7 +1,9 @@
 // The persisted boundary for a finished session. Keep this pure so compatibility tests can
 // exercise the exact shape the UI writes without mounting React or mutating store state.
 export function buildCompletedWorkout(active, { end = Date.now(), prs = [], snapshotFor } = {}) {
-  const entries = (active?.entries || []).map(entry => {
+  const live = active?.entries || []
+  const logged = entry => (entry.sets || []).some(set => set.done)
+  const entries = live.filter(logged).map(entry => {
     const completed = {
       id: entry.id,
       sets: entry.sets,
@@ -21,9 +23,25 @@ export function buildCompletedWorkout(active, { end = Date.now(), prs = [], snap
       if (entry.notePin) completed.notePin = true
     }
     return completed
-  }).filter(entry => entry.sets.some(set => set.done))
+  })
 
   const sessionNote = (active?.note || '').trim()
+
+  // History is what you did: an exercise with nothing ticked is not in it, and neither are
+  // the session's working parts — which exercises were paired, why each weight was chosen,
+  // where you had got to. Reopening the day's session (resumeWorkout) needs all of that back,
+  // exactly as it was, so it rides along here in one field every reader of history ignores.
+  // Written only when it holds something, so an ordinary fully-logged session keeps the
+  // shape it always had.
+  const unlogged = []
+  live.forEach((entry, i) => { if (!logged(entry)) unlogged.push({ i, entry }) })
+  const meta = live.filter(logged)
+    .map(e => ({ id: e.id, ...(e.sg ? { sg: e.sg } : {}), ...(e.plan ? { plan: e.plan } : {}), ...(e.asked ? { asked: true } : {}) }))
+    .filter(m => m.sg || m.plan || m.asked)
+  const cur = active?.cur > 0 ? active.cur : 0
+  const resume = (unlogged.length || meta.length || cur)
+    ? { cur, ...(unlogged.length ? { unlogged } : {}), ...(meta.length ? { meta } : {}) }
+    : null
 
   return {
     id: active.id,
@@ -36,6 +54,7 @@ export function buildCompletedWorkout(active, { end = Date.now(), prs = [], snap
     entries,
     prs,
     ...(sessionNote ? { note: sessionNote } : {}),
+    ...(resume ? { resume } : {}),
   }
 }
 
@@ -51,6 +70,23 @@ export function buildCompletedWorkout(active, { end = Date.now(), prs = [], snap
    session as its own predecessor, and every set in it block its own PR. `prev` is the copy
    that goes back if the reopen is discarded. */
 export function resumeWorkout(w, now = Date.now()) {
+  // Start from what history holds — it may have been corrected since (Edit sets) and that
+  // correction wins — then put back what the save set aside: pairings and prescriptions
+  // onto the exercises they belong to, and the untouched exercises into the slots they
+  // came from. Ascending by original position, each insert lands where it used to be.
+  const entries = (w.entries || []).map(e => ({ ...e }))
+  const stash = w.resume || {}
+  const pool = (stash.meta || []).slice()
+  entries.forEach(e => {
+    const k = pool.findIndex(m => m.id === e.id)
+    if (k < 0) return
+    const [m] = pool.splice(k, 1)
+    if (m.sg) e.sg = m.sg
+    if (m.plan) e.plan = m.plan
+    if (m.asked) e.asked = true
+  })
+  ;[...(stash.unlogged || [])].sort((a, b) => a.i - b.i)
+    .forEach(u => entries.splice(Math.min(Math.max(0, u.i), entries.length), 0, { ...u.entry }))
   return {
     id: w.id,
     d: w.d,
@@ -58,8 +94,8 @@ export function resumeWorkout(w, now = Date.now()) {
     routineId: w.routineId,
     name: w.name,
     bw: w.bw ?? null,
-    cur: 0,
-    entries: (w.entries || []).map(e => ({ ...e })),
+    cur: Math.min(Math.max(0, stash.cur || 0), Math.max(0, entries.length - 1)),
+    entries,
     ...(w.note ? { note: w.note } : {}),
     // ms: what the session had already accounted for. A reopen hours later must not bill the
     // gap as training time — that lands in the month's minutes and in the activity heatmap.

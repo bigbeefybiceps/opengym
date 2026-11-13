@@ -1538,6 +1538,9 @@ function doFinishWorkout() {
       const mx = Math.max(0, ...e.sets.filter(x => x.done && !isWarmupRow(x)).map(x => x.w || 0), e.topW || 0)
       if (mx > 0) { const cur = s.exWeights[e.id]; if (!cur || mx > cur.w) s.exWeights[e.id] = { w: mx, d: w.d } }
     })
+    // Only a session from today can be reopened, so yesterday's stash is dead weight in
+    // storage and in every backup from here on. Dropped as the next session is saved.
+    s.workouts.forEach(x => { if (x.d !== w.d) delete x.resume })
     s.workouts.push(w)
     s.active = null
   })

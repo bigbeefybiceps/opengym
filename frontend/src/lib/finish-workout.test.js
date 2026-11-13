@@ -124,3 +124,68 @@ describe('resuming a finished session', () => {
     expect(a.resumed.ms).toBe(0)
   })
 })
+
+/* "Opens as it was": finish, reopen, and the session on screen is the one you left. */
+describe('a reopened session is the session you left', () => {
+  const done = (w, r) => ({ w, r, done: true })
+  const open = (w, r) => ({ w, r, done: false })
+  const active = {
+    id: 'w9', d: '2026-11-13', start: 1000, routineId: 'r-upper1', name: 'Upper 1', bw: null, cur: 2,
+    entries: [
+      { id: 'A', sets: [done(60, 8), done(60, 7)], target: { reps: 8 }, plan: { kind: 'hold', why: ['Same weight'] } },
+      { id: 'B', sets: [open(40, 8), open(40, 8)], target: { reps: 8 }, plan: { kind: 'up', why: ['More'] } },   // never touched
+      { id: 'C', sg: 'g1', sets: [done(20, 10), open(20, 10)], target: { reps: 10 }, asked: true },             // half done
+      { id: 'D', sg: 'g1', sets: [open(15, 12)], target: { reps: 12 } },                                         // never touched
+    ],
+  }
+  const saved = buildCompletedWorkout(active, { end: 5000 })
+
+  it('still keeps untouched exercises out of history itself', () => {
+    expect(saved.entries.map(e => e.id)).toEqual(['A', 'C'])
+  })
+
+  it('brings every exercise back, in the order it was in', () => {
+    expect(resumeWorkout(saved, 9000).entries.map(e => e.id)).toEqual(['A', 'B', 'C', 'D'])
+  })
+
+  it('brings back unticked sets — on a half-done exercise and an untouched one alike', () => {
+    const e = resumeWorkout(saved, 9000).entries
+    expect(e[1].sets).toEqual([open(40, 8), open(40, 8)])
+    expect(e[2].sets).toEqual([done(20, 10), open(20, 10)])
+    expect(e[3].sets).toEqual([open(15, 12)])
+  })
+
+  it('brings back the pairing, the prescription and your place', () => {
+    const a = resumeWorkout(saved, 9000)
+    expect(a.entries[2].sg).toBe('g1')
+    expect(a.entries[3].sg).toBe('g1')
+    expect(a.entries[0].plan).toEqual({ kind: 'hold', why: ['Same weight'] })
+    expect(a.entries[1].plan).toEqual({ kind: 'up', why: ['More'] })
+    expect(a.entries[2].asked).toBe(true)
+    expect(a.cur).toBe(2)
+  })
+
+  it('round-trips: finishing the reopened session unchanged saves the same workout', () => {
+    const again = buildCompletedWorkout(resumeWorkout(saved, 9000), { end: 5000 })
+    expect(again.entries).toEqual(saved.entries)
+    expect(again.resume).toEqual(saved.resume)
+  })
+
+  it('lets a correction made in history win over the stash', () => {
+    const edited = JSON.parse(JSON.stringify(saved))
+    edited.entries[0].sets[0].r = 9                    // fixed afterwards via Edit sets
+    expect(resumeWorkout(edited, 9000).entries[0].sets[0].r).toBe(9)
+  })
+
+  it('adds nothing to a session that was logged in full from the first exercise', () => {
+    const plain = buildCompletedWorkout({ id: 'p', d: '2026-11-13', start: 1, entries: [{ id: 'A', sets: [done(60, 8)] }] }, { end: 2 })
+    expect('resume' in plain).toBe(false)
+  })
+
+  it('reopens a session saved before any of this existed', () => {
+    const old = { id: 'o', d: '2026-11-13', start: 1, end: 2, entries: [{ id: 'A', sets: [done(60, 8)] }] }
+    const a = resumeWorkout(old, 9)
+    expect(a.entries.map(e => e.id)).toEqual(['A'])
+    expect(a.cur).toBe(0)
+  })
+})
