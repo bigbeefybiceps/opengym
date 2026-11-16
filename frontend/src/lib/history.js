@@ -142,7 +142,22 @@ export function exLine(cfg, unit) {
   if (mode === 'time') return `${n} × ${fmtSec(cfg.sec || 45)}${load}`
   // This is the line with room for it, so the split is spelled out: "3 × 16 · 8/side".
   const split = isPerSide(cfg) ? ' · ' + t('{0}/side', fmtNum(sideReps(cfg.reps))) : ''
-  return `${n} × ${cfg.reps}${load}${split}`
+  return `${n} × ${repRange(cfg)}${load}${split}`
+}
+
+/**
+ * The rep target as the plan states it: "6–8" where the exercise works through a range, the
+ * bare number where it does not.
+ *
+ * A range is stored as its top (`reps`) and its bottom (`repsMin`), and the bottom only exists
+ * where a rule uses one. The row on screen is pre-filled with a single number — the one the
+ * progression rule is aiming at today — so without this the range itself appears nowhere, and
+ * "7" reads as the target rather than as a step on the way to 8.
+ */
+export function repRange(cfg) {
+  const top = cfg?.reps
+  const bottom = cfg?.repsMin
+  return bottom > 0 && bottom < top ? `${bottom}–${top}` : `${top}`
 }
 
 // Drop superset ids that no longer have an adjacent partner (after unlink/reorder/remove).

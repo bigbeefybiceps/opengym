@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, bestWeightFor, bestWeightForEntry, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, workSetsDone, pairAdjacent, unpairSuperset, supersetUnits, applyIntensifierPlan, pinnedNoteFor, exNoteFor, historyFor, lastEntryFor } from './history.js'
+import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, bestWeightFor, bestWeightForEntry, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, workSetsDone, pairAdjacent, unpairSuperset, supersetUnits, applyIntensifierPlan, pinnedNoteFor, exNoteFor, historyFor, lastEntryFor, repRange } from './history.js'
 import { EXDB } from './exercises.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
@@ -946,5 +946,18 @@ describe('set labels keep the load exactly', () => {
   it('never grows a trailing zero', () => {
     expect(setLabel('0175', { w: 60, r: 8 }, { reps: 8 })).toBe('60×8')
     expect(setLabel('0175', { w: 62.5, r: 8 }, { reps: 8 })).toBe('62.5×8')
+  })
+})
+
+describe('rep ranges as the plan states them', () => {
+  it('shows a range where the exercise works through one', () => {
+    expect(repRange({ reps: 8, repsMin: 6 })).toBe('6–8')
+    expect(exLine({ id: LIFT, sets: 2, reps: 8, repsMin: 6, weight: 75 }, 'kg')).toBe('2 × 6–8 · 75 kg')
+  })
+
+  it('shows the bare number where there is no range, or a bottom that is not below the top', () => {
+    expect(repRange({ reps: 10 })).toBe('10')
+    expect(repRange({ reps: 8, repsMin: 8 })).toBe('8')
+    expect(repRange({ reps: 8, repsMin: 0 })).toBe('8')
   })
 })
