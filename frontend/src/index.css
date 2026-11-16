@@ -1060,3 +1060,6 @@ h4.sec{
 .wday .dot.cardio{background:var(--teal)}
 .cal-d{position:relative}
 .cal-d.cardio::after{content:'';position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--teal)}
+
+/* a Home card that is switched off, in the layout sheet: still listed, still movable, dimmed */
+.lrow.lrow-off .lrow-m{opacity:.45}

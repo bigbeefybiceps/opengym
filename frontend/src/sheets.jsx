@@ -25,6 +25,7 @@ import { buildCompletedWorkout, resumeWorkout, activeMs } from './lib/finish-wor
 import { isWarmupRow } from './lib/workout-model.js'
 import { planOf, planStatus, programStartOf, weekCfg, weekStamp, exOf, exNow, listsOf, blockName, effortScale, shiftWeeks, jumpToBlock, addBlock, removeBlock, cleanPct, MAX_BLOCKS, MAX_BLOCK_WEEKS } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
+import { homeLayout, moveHomeSection, setHomeSectionHidden, resetHomeLayout } from './lib/home-layout.js'
 import { MODALITIES, CARDIO_NOTE_MAX, cleanCardio, cardioPlanFor, cardioLine, cardioIcon } from './lib/cardio.js'
 
 const S = () => useStore.getState().S
@@ -1453,6 +1454,31 @@ function CardioLog({ iso, entry, close }) {
   </>
 }
 export const cardioLogSheet = (opts = {}) => ui().openSheet(close => <CardioLog iso={opts.iso} entry={opts.entry} close={close} />)
+
+
+/* ============================ Home layout ============================ */
+function HomeLayout({ close }) {
+  const st = useStore(s => s.S)
+  const layout = homeLayout(st)
+  return <>
+    <h3>{t('Customize Home')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Choose which cards the Home screen shows, and in what order.')}</div>
+    <div className="sect-b" style={{ marginBottom: 14 }}>
+      {layout.map((x, i) => (
+        <Row key={x.id} title={t(x.title)} subtitle={t(x.desc)} className={x.hidden ? 'lrow-off' : ''}>
+          <button className="iconbtn" disabled={i === 0} style={{ width: 32, height: 32, fontSize: 14, opacity: i === 0 ? .3 : 1 }}
+            aria-label={t('Move {0} up', t(x.title))} onClick={() => update(s => moveHomeSection(s, x.id, -1))}><Icon name="chevronUp" /></button>
+          <button className="iconbtn" disabled={i === layout.length - 1} style={{ width: 32, height: 32, fontSize: 14, opacity: i === layout.length - 1 ? .3 : 1 }}
+            aria-label={t('Move {0} down', t(x.title))} onClick={() => update(s => moveHomeSection(s, x.id, 1))}><Icon name="chevronDown" /></button>
+          <Switch checked={!x.hidden} onChange={v => update(s => setHomeSectionHidden(s, x.id, !v))} />
+        </Row>
+      ))}
+    </div>
+    <Button variant="primary" onClick={close}>{t('Done')}</Button>
+    {st.home && <><div style={{ height: 8 }} /><Button variant="ghost" className="dim" onClick={() => update(s => resetHomeLayout(s))}>{t('Reset to default')}</Button></>}
+  </>
+}
+export const homeLayoutSheet = () => ui().openSheet(close => <HomeLayout close={close} />)
 
 /* ============================ workout lifecycle ============================ */
 export function startFlow(routineId) {
