@@ -4,7 +4,7 @@ import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, smOf, matchExercise, exOr } from './lib/exercises.js'
 import { activeProfile, exAvailable, ALL_EQUIPMENT, newProfile } from './lib/equipment.js'
 import { fmtDate, fmtNum, fmtPlate, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
-import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone, applyIntensifierPlan, MAX_PLANNED_WARMUPS, NOTE_MAX } from './lib/history.js'
+import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone, applyIntensifierPlan, rerampWarmups, MAX_PLANNED_WARMUPS, NOTE_MAX } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
 import { t, instrFor, exerciseNameFor, getLang, INSTR_LANGS } from './lib/i18n.js'
 import { nav } from './lib/nav.js'
@@ -23,7 +23,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDou
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout, resumeWorkout, activeMs } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
-import { blockPlanStatus, rirFor } from './lib/block-plan.js'
+import { planOf, planStatus, programStartOf, weekCfg, weekStamp, exOf, exNow, listsOf, blockName, effortScale, shiftWeeks, jumpToBlock, addBlock, removeBlock, cleanPct, MAX_BLOCKS, MAX_BLOCK_WEEKS } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
 
 const S = () => useStore.getState().S
@@ -321,7 +321,8 @@ function AddToRoutine({ ex, close }) {
       update(s => {
         let r = isNew ? { id: uid(), name: t('New routine'), emoji: DEFAULT_GLYPH, ex: [] } : s.routines.find(x => x.id === rid)
         if (isNew) s.routines.push(r)
-        if (r) r.ex.push({ id: ex.id, ...cfg })
+        // Added from the library, so added to the routine as such — every block's list.
+        if (r) listsOf(r).forEach(list => list.push({ id: ex.id, ...JSON.parse(JSON.stringify(cfg)) }))
       })
       const r = isNew ? S().routines[S().routines.length - 1] : st.routines.find(x => x.id === rid)
       toast(t('“{0}” added to {1}', exerciseNameFor(ex), r ? r.name : t('routine')))
@@ -335,7 +336,7 @@ function AddToRoutine({ ex, close }) {
       {st.routines.map(r => <div key={r.id} className="item" onClick={() => pick(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-        {r.ex.some(e => e.id === ex.id) && <span className="tag">{t('already in')}</span>}<Icon name="plus" className="chev" />
+        {listsOf(r).some(list => list.some(e => e.id === ex.id)) && <span className="tag">{t('already in')}</span>}<Icon name="plus" className="chev" />
       </div>)}
       <div className="item" onClick={() => pick('_new')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
         <div className="grow"><div className="tt">{t('New routine')}</div><div className="ss">{t('Create one and start with this exercise')}</div></div><Icon name="plus" className="chev" /></div>
@@ -428,7 +429,10 @@ export function deleteCustomEx(ex, afterDelete) {
           if (!e.muscleSnapshot || !Object.keys(e.muscleSnapshot).length) e.muscleSnapshot = snapshot
         }))
         s.customEx = (s.customEx || []).filter(x => x.id !== ex.id)
-        s.routines.forEach(r => { r.ex = r.ex.filter(e => e.id !== ex.id); cleanupSg(r.ex) })
+        s.routines.forEach(r => {
+          r.ex = r.ex.filter(e => e.id !== ex.id); cleanupSg(r.ex)
+          Object.keys(r.alt || {}).forEach(k => { r.alt[k] = r.alt[k].filter(e => e.id !== ex.id); cleanupSg(r.alt[k]) })
+        })
         delete s.exWeights[ex.id]
       })
       toast(t('Exercise deleted'))
@@ -549,6 +553,79 @@ export const equipmentProfileSheet = profile => ui().openSheet(close => <Equipme
 // Progression settings for one exercise (issue #17). Shown inside the config sheet because
 // "how does this lift go up" belongs next to sets and reps, not in a separate screen. Left
 // on "follow the routine" it inherits, so most people never touch it.
+// Effort targets per set. RIR and RPE are the same judgement on two scales — reps left in the
+// tank, or how hard it was out of ten — and which one a person thinks in is personal enough to
+// be chosen per exercise. Switching converts what is there (RPE = 10 − RIR) rather than
+// throwing it away.
+const EFFORT_SCALE = { rir: { min: 0, max: 6, step: 1, start: 1 }, rpe: { min: 5, max: 10, step: 0.5, start: 9 } }
+const clampEffort = (k, v) => Math.max(EFFORT_SCALE[k].min, Math.min(EFFORT_SCALE[k].max, Math.round((Number(v) || 0) * 2) / 2))
+/** An effort array cut or padded to `n` sets; a new set repeats the last one's target. */
+function fitEffort(arr, n, k) {
+  const a = Array.isArray(arr) ? arr : []
+  return Array.from({ length: n }, (_, i) => clampEffort(k, a[i] != null ? a[i] : a.length ? a[a.length - 1] : EFFORT_SCALE[k].start))
+}
+function EffortFields({ c, setC, lighter, ranged }) {
+  const k = effortScale(c)
+  const n = Math.max(1, Math.round(c.sets) || 1)
+  const lwN = c.lw && c.lw.sets > 0 ? Math.max(1, Math.round(c.lw.sets)) : n
+  const setScale = v => setC(x => {
+    const from = effortScale(x)
+    const { rir, rirEasy, rpe, rpeEasy, ...rest } = x
+    if (!v) return rest
+    if (from === v) return x
+    const turn = arr => (Array.isArray(arr) && arr.length ? arr.map(y => clampEffort(v, 10 - y)) : null)
+    const vals = from ? turn(x[from]) : fitEffort(null, n, v)
+    const easy = from ? turn(x[from + 'Easy']) : null
+    return { ...rest, [v]: vals, ...(easy ? { [v + 'Easy']: easy } : {}) }
+  })
+  const setAt = (field, len, i, v) => setC(x => {
+    const arr = fitEffort(x[field] || x[k], len, k)
+    arr[i] = clampEffort(k, v)
+    return { ...x, [field]: arr }
+  })
+  const row = (field, len) => <div className="row cfgrow" style={{ flexWrap: 'wrap', marginBottom: 8 }}>
+    {fitEffort(c[field] || c[k], len, k).map((v, i) => <Stepper key={i} label={t('Set {0}', i + 1)} value={v}
+      step={EFFORT_SCALE[k].step} decimal={k === 'rpe'} onChange={val => setAt(field, len, i, val)} />)}
+  </div>
+  return <>
+    <h4 className="sec">{t('Effort target')}</h4>
+    <div style={{ marginBottom: 12 }}>
+      <Segmented className="seg-range" value={k || ''} onChange={setScale}
+        options={[{ value: '', label: t('None') }, { value: 'rir', label: 'RIR' }, { value: 'rpe', label: 'RPE' }]} />
+    </div>
+    {k && row(k, n)}
+    <div className="small dim" style={{ marginBottom: 18 }}>
+      {k === 'rir' ? t('Reps left in reserve on each set — 0 is taken to failure.')
+        : k === 'rpe' ? t('How hard each set should feel out of 10 — 10 is nothing left.')
+          : t('No effort target is shown for this exercise.')}
+    </div>
+    {lighter && <>
+      <h4 className="sec">{lighter.name || t('Lighter week')}</h4>
+      {k && row(k + 'Easy', lwN)}
+      <div className="sect-b" style={{ marginBottom: 8 }}>
+        <Row icon="calendar" iconTint="var(--yellow)" title={t('Different sets and reps')}
+          subtitle={c.lw ? null : t('Same sets and reps as the rest of the block.')}>
+          <Switch checked={!!c.lw} onChange={v => setC(x => {
+            if (!v) { const { lw, ...rest } = x; return rest }
+            return { ...x, lw: { sets: x.sets || 1, reps: x.reps || 8, ...(x.repsMin > 0 ? { repsMin: x.repsMin } : {}) } }
+          })} />
+        </Row>
+      </div>
+      {c.lw && <div className="row cfgrow" style={{ marginBottom: 8 }}>
+        <Stepper label={t('Sets')} value={c.lw.sets} step={1} decimal={false} onChange={v => setC(x => ({ ...x, lw: { ...x.lw, sets: Math.max(1, v) } }))} />
+        {ranged && <Stepper label={t('Reps from')} value={c.lw.repsMin || Math.max(1, (c.lw.reps || 8) - 2)} step={1} decimal={false}
+          onChange={v => setC(x => ({ ...x, lw: { ...x.lw, repsMin: Math.max(1, v) } }))} />}
+        <Stepper label={ranged ? t('Reps to') : t('Reps')} value={c.lw.reps} step={1} decimal={false} onChange={v => setC(x => ({ ...x, lw: { ...x.lw, reps: Math.max(1, v) } }))} />
+      </div>}
+      <div className="small dim" style={{ marginBottom: 18 }}>
+        {lighter.pct < 100
+          ? t('Used only in this block’s lighter week, where weights start at {0}% of your last working weight.', lighter.pct)
+          : t('Used only in this block’s lighter week.')}
+      </div>
+    </>}
+  </>
+}
+
 function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
   const options = POLICIES_FOR[mode] || ['off']
   if (options.length < 2) return null
@@ -572,10 +649,13 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
   </>
 }
 
-function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
+function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, ctx }) {
   const st = useStore(s => s.S)
   const cardio = isCardio(ex.id)
   const [c, setC] = useState(existing || initial || defaultConfig(ex.id))
+  // Whether this save (or removal) should reach the exercise in the routine's other blocks.
+  // Only offered where there are other blocks to reach — see ctx.
+  const [all, setAll] = useState(false)
   // Cardio keeps its own duration+speed form; the reps/time choice (issue #16) is offered for
   // everything else, which is where the gap was — planks, hangs, wall sits, loaded carries.
   const mode = cardio ? 'cardio' : modeOf({ ...c, id: ex.id })
@@ -608,26 +688,39 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
     // shape it had — and reads back as 0 either way (buildSets).
     const warmupSets = Math.max(0, Math.min(MAX_PLANNED_WARMUPS, Math.round(c.warmupSets) || 0))
     const withWarmups = warmupSets ? { warmupSets } : {}
-    if (cardio) onSave({ sets, min: Math.max(1, Math.round(c.min) || 20), speed: Math.max(0, c.speed || 8), ...withNote })
-    else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...flags, ...prog, ...withNote, ...withWarmups })
+    if (cardio) onSave({ sets, min: Math.max(1, Math.round(c.min) || 20), speed: Math.max(0, c.speed || 8), ...withNote }, { all })
+    else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...flags, ...prog, ...withNote, ...withWarmups }, { all })
     else {
       // A unilateral target is stored even: the split has to divide, and a typed 15 would
       // otherwise plan seven reps on one side and eight on the other, every session.
       const typed = Math.max(1, Math.round(c.reps) || 10)
       const reps = perSide ? Math.ceil(typed / 2) * 2 : typed
       const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...flags, ...(perSide ? { side: true } : {}), ...prog, ...withNote, ...withWarmups }
-      // Imported-plan extras with no editor UI of their own (target RIR per set, block-2
-      // intensity technique) survive a round-trip through this sheet instead of being dropped.
-      if (Array.isArray(c.rir) && c.rir.length) out.rir = c.rir
-      if (Array.isArray(c.rirEasy) && c.rirEasy.length) out.rirEasy = c.rirEasy
-      if (c.b2) out.b2 = c.b2
+      // Effort targets, one per set, in whichever scale this exercise uses. The arrays are cut
+      // or padded to the set count here, so changing "Sets" never leaves a target for a set
+      // that no longer exists. The lighter week's own targets are kept even when this block
+      // has no lighter week to show them in — another block may, and the data is the user's.
+      const k = effortScale(c)
+      const lwSets = c.lw && c.lw.sets > 0 ? Math.max(1, Math.round(c.lw.sets)) : sets
+      if (k) {
+        out[k] = fitEffort(c[k], sets, k)
+        const easy = c[k + 'Easy']
+        if (Array.isArray(easy) && easy.length) out[k + 'Easy'] = fitEffort(easy, lwSets, k)
+      }
+      const tech = (c.tech || '').trim().slice(0, 80)
+      if (tech) out.tech = tech
+      // Sets and reps for the lighter week, only when they were made different on purpose.
+      if (c.lw && (c.lw.sets > 0 || c.lw.reps > 0)) {
+        const lr = Math.max(1, Math.round(c.lw.reps) || reps)
+        out.lw = { sets: lwSets, reps: lr, ...(c.lw.repsMin > 0 ? { repsMin: Math.min(lr, Math.max(1, Math.round(c.lw.repsMin))) } : {}) }
+      }
       if (isDoubleLike(policyFor({ ...c, id: ex.id }, routine, 'reps'))) out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
       // A ceiling below the working reps would tell you to add a set on day one.
       if (bw && !(out.weight > 0) && c.repsMax > 0) out.repsMax = Math.max(reps, Math.round(c.repsMax))
       // Every set in this exercise becomes a drop-set/rest-pause (buildSets stamps the rows) —
       // decided here, in the plan, not re-decided live each time you train it.
       if (c.intensifier && c.intensifier.type) out.intensifier = c.intensifier
-      onSave(out)
+      onSave(out, { all })
     }
   }
   return <>
@@ -759,16 +852,38 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
           : t('Every set becomes rest-pause: {0} reps to start, then {1} more split into short bursts, {2}s rest before each, roughly halving each time.', c.reps || 0, c.intensifier.totalReps, c.intensifier.restSec)}
       </div>}
     </>}
+    {mode === 'reps' && <>
+      <h4 className="sec">{t('Last-set technique')}</h4>
+      <TextField placeholder={t('Myo-reps, two drop sets, lengthened partials…')} value={c.tech || ''} maxLength={80}
+        onChange={e => setC(x => ({ ...x, tech: e.target.value }))} />
+      <div className="small dim" style={{ margin: '8px 0 18px' }}>
+        {t('A label shown on the workout card for this block. You run the technique yourself — it adds no rows.')}
+      </div>
+      <EffortFields c={c} setC={setC} lighter={ctx?.lighter}
+        ranged={isDoubleLike(policyFor({ ...c, id: ex.id }, routine, 'reps'))} />
+    </>}
     <ProgressionFields ex={ex} mode={mode} c={c} setC={setC} routine={routine} unit={st.unit} />
+    {ctx?.blocks > 1 && <div className="sect-b" style={{ marginBottom: 18 }}>
+      <Row icon="list" iconTint="var(--blue)" title={existing ? t('Apply to all blocks') : t('Add to all blocks')}
+        subtitle={existing
+          ? t('Only what you change here is copied to this exercise in the other blocks. Their own differences stay.')
+          : t('Otherwise it is added to {0} only.', ctx.blockName)}>
+        <Switch checked={all} onChange={setAll} />
+      </Row>
+    </div>}
     <textarea className="input" rows={3} maxLength={500} style={{ marginBottom: 18 }}
       placeholder={t('Note (optional) — loading cues, "bar only then +1 plate/side each set", anything worth remembering here')}
       value={c.note || ''} onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
     <Button variant="primary" onClick={save}>{existing ? t('Save') : t('Add to routine')}</Button>
     {ex.custom && <><div style={{ height: 8 }} /><Button icon="pencil" onClick={() => { close(); customExSheet(ex) }}>{t('Edit or delete this exercise')}</Button></>}
-    {onDelete && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { close(); onDelete() }}>{t('Remove from routine')}</Button></>}
+    {onDelete && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { close(); onDelete({ all }) }}>
+      {ctx?.blocks > 1 ? (all ? t('Remove from every block') : t('Remove from {0}', ctx.blockName)) : t('Remove from routine')}
+    </Button></>}
   </>
 }
-export const exConfigSheet = (ex, existing, onSave, onDelete, routine, initial) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} initial={initial} onSave={onSave} onDelete={onDelete} routine={routine} close={close} />)
+// `ctx` describes the block the exercise is being edited in — { blocks, blockName, lighter } —
+// and is absent wherever there is no block to speak of (mid-session, from the library).
+export const exConfigSheet = (ex, existing, onSave, onDelete, routine, initial, ctx) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} initial={initial} onSave={onSave} onDelete={onDelete} routine={routine} ctx={ctx} close={close} />)
 
 /* ============================ glyph picker ============================ */
 // Grouped by what the glyph means for a training day, so picking one is a scan
@@ -1073,14 +1188,15 @@ export function logPastWorkout(iso, routineId) {
   if (!r) return null
   let w
   update(s => {
-    const week = blockPlanStatus(s, iso)
-    const entries = r.ex.map(cfg => {
+    const week = planStatus(s, iso)
+    const entries = exOf(r, week.block.id).map(raw => {
+      const cfg = weekCfg(raw, week)
       const sets = buildSets(s, cfg, { routineId: r.id }).filter(x => !isWarmupRow(x)).map(x => ({ ...x, done: true }))
       const top = Math.max(0, ...sets.map(x => x.w || 0))
-      return { id: cfg.id, target: targetFor(cfg, week), sets, topW: top > 0 ? top : null }
+      return { id: cfg.id, target: cfg, sets, topW: top > 0 ? top : null }
     })
     const startMs = new Date(iso + 'T12:00:00').getTime()
-    w = { id: uid(), d: iso, start: startMs, end: startMs + 60 * 60000, routineId: r.id, name: r.name, entries, prs: [] }
+    w = { id: uid(), d: iso, start: startMs, end: startMs + 60 * 60000, routineId: r.id, name: r.name, entries, prs: [], wk: weekStamp(week) }
     w.vol = workoutVolume(w)
     // History stays date-ordered — everything reading it (streaks, charts, "last time") counts on that.
     const idx = s.workouts.findIndex(x => x.d > iso)
@@ -1126,6 +1242,126 @@ export function WorkoutRow({ w, onClick }) {
   </div>
 }
 
+
+/* ============================ the training plan ============================
+   Everything about the programme as a whole lives behind the plan card (Plan page): its
+   name, when it started, the blocks it runs through and what follows the last one. The
+   blocks' own prescriptions are edited where the exercises are — in each routine. */
+function PlanSetup({ close }) {
+  const st = useStore(s => s.S)
+  const pst = planStatus(st, todayISO())
+  const plan = pst.plan
+  const setPlan = fn => update(s => { s.plan = planOf(s); fn(s.plan, s) })
+  return <>
+    <h3>{t('Plan setup')}</h3>
+    <div style={{ height: 10 }} />
+    <TextField placeholder={t('Plan name')} defaultValue={plan.name} maxLength={40}
+      onChange={e => setPlan(p => { p.name = e.target.value.slice(0, 40) })} />
+    <h4 className="sec" style={{ marginTop: 18 }}>{t('Blocks')}</h4>
+    <div className="sect-b" style={{ marginBottom: 8 }}>
+      {plan.blocks.map((b, i) => (
+        <Row key={b.id} icon="bolt" iconTint={b.id === pst.block.id ? 'var(--acc)' : 'var(--surface-3)'} title={blockName(b, i)}
+          subtitle={t(b.weeks === 1 ? '{0} week' : '{0} weeks', b.weeks) + (b.easy
+            ? ' · ' + t(b.easy.at === 'first' ? 'first week: {0}' : 'last week: {0}', b.easy.name || t('lighter'))
+            + (b.easy.pct < 100 ? ' ' + t('at {0}%', b.easy.pct) : '') : '')}
+          accessory="chevron" onClick={() => blockSheet(b.id)} />
+      ))}
+      {plan.blocks.length < MAX_BLOCKS && <Row icon="plus" iconTint="var(--acc)" title={t('Add block')}
+        subtitle={t('Starts as a copy of {0}.', blockName(plan.blocks[plan.blocks.length - 1], plan.blocks.length - 1))}
+        onClick={() => { let id; update(s => { id = addBlock(s) }); if (id) blockSheet(id) }} />}
+    </div>
+    <div className="small dim" style={{ marginBottom: 18 }}>
+      {t('Each block has its own exercises, sets, reps and effort targets for every routine — set them in the routine itself.')}
+    </div>
+    <div className="sect-b" style={{ marginBottom: 18 }}>
+      <Row icon="reset" iconTint="var(--blue)" title={t('After the last block')}>
+        <Segmented className="seg-inline" value={plan.after}
+          options={[{ value: 'repeat', label: t('Start over') }, { value: 'stay', label: t('Stay') }]}
+          onChange={v => setPlan(p => { p.after = v })} />
+      </Row>
+      <Row icon="calendar" iconTint="var(--teal)" title={t('Week 1 started')}>
+        <input type="date" className="input pc-date" value={programStartOf(st) || todayISO()} max={todayISO()}
+          onChange={e => { const v = e.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(v) && v <= todayISO()) setPlan(p => { p.start = v }) }} />
+      </Row>
+    </div>
+    <Button variant="primary" onClick={close}>{t('Done')}</Button>
+  </>
+}
+export const planSetupSheet = () => ui().openSheet(close => <PlanSetup close={close} />)
+
+function BlockSheet({ blockId, close }) {
+  const st = useStore(s => s.S)
+  const plan = planOf(st)
+  const i = plan.blocks.findIndex(b => b.id === blockId)
+  const b = plan.blocks[i]
+  useEffect(() => { if (!b) close() }, [!b])
+  if (!b) return null
+  const set = fn => update(s => { s.plan = planOf(s); const x = s.plan.blocks.find(y => y.id === blockId); if (x) fn(x) })
+  const at = b.easy ? b.easy.at : ''
+  return <>
+    <h3>{blockName(b, i)}</h3>
+    <div style={{ height: 10 }} />
+    <TextField placeholder={t('Block {0}', i + 1)} defaultValue={b.name} maxLength={30}
+      onChange={e => set(x => { x.name = e.target.value.slice(0, 30) })} />
+    <div style={{ height: 12 }} />
+    <div className="row cfgrow" style={{ marginBottom: 18 }}>
+      <Stepper label={t('Length (weeks)')} value={b.weeks} step={1} decimal={false}
+        onChange={v => set(x => { x.weeks = Math.max(1, Math.min(MAX_BLOCK_WEEKS, Math.round(v) || 1)) })} />
+    </div>
+    <h4 className="sec">{t('Lighter week')}</h4>
+    <div style={{ marginBottom: 12 }}>
+      <Segmented className="seg-range" value={at}
+        options={[{ value: '', label: t('None') }, { value: 'first', label: t('First week') }, { value: 'last', label: t('Last week') }]}
+        onChange={v => set(x => { x.easy = v ? { at: v, name: (x.easy && x.easy.name) || (v === 'first' ? t('Intro') : t('Deload')), pct: (x.easy && x.easy.pct) || 100 } : null })} />
+    </div>
+    {b.easy && <>
+      <TextField placeholder={t('Name — intro, deload…')} defaultValue={b.easy.name} maxLength={24}
+        onChange={e => set(x => { if (x.easy) x.easy.name = e.target.value.slice(0, 24) })} />
+      <div style={{ height: 12 }} />
+      <div className="row cfgrow" style={{ marginBottom: 8 }}>
+        <Stepper label={t('Starting weight (% of last week)')} value={b.easy.pct} step={5} decimal={false}
+          onChange={v => set(x => { if (x.easy) x.easy.pct = cleanPct(v) })} />
+      </div>
+    </>}
+    <div className="small dim" style={{ marginBottom: 18 }}>
+      {b.easy
+        ? (b.easy.pct < 100
+          ? t('That week, every exercise starts at {0}% of your last working weight and uses its own lighter effort target. It does not count towards progression — the week after carries on from where you were.', b.easy.pct)
+          : t('That week keeps your last weights and uses each exercise’s lighter effort target. It does not count towards progression — the week after carries on from where you were.'))
+        : t('An intro or deload week with its own effort targets and, if you like, lighter starting weights.')}
+    </div>
+    <Button variant="primary" onClick={close}>{t('Done')}</Button>
+    {plan.blocks.length > 1 && <><div style={{ height: 8 }} />
+      <Button variant="danger" onClick={() => confirmSheet({
+        title: t('Delete {0}?', blockName(b, i)),
+        message: t('Its exercises, sets and targets are removed from every routine. Logged workouts are not affected.'),
+        confirmText: t('Delete'), danger: true,
+        onConfirm: () => { update(s => { removeBlock(s, blockId) }); close() },
+      })}>{t('Delete block')}</Button></>}
+  </>
+}
+export const blockSheet = blockId => ui().openSheet(close => <BlockSheet blockId={blockId} close={close} />)
+
+/** Move the plan's position to the start of a block. */
+export const jumpBlockSheet = () => ui().openSheet(close => {
+  const st = S()
+  const pst = planStatus(st, todayISO())
+  return <>
+    <h3>{t('Jump to block')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Today becomes the first week of the block you pick. Nothing in your log changes.')}</div>
+    <div className="sect-b">
+      {pst.plan.blocks.map((b, i) => (
+        <button key={b.id} className="lrow tap" onClick={() => { close(); update(s => { jumpToBlock(s, b.id) }); toast(t('{0}, week 1', blockName(b, i))) }}>
+          <span className="lrow-m"><span className="lrow-t">{blockName(b, i)}</span>
+            <span className="lrow-s">{t(b.weeks === 1 ? '{0} week' : '{0} weeks', b.weeks)}</span></span>
+          {b.id === pst.block.id && <Icon name="check" className="lrow-k" />}
+        </button>
+      ))}
+    </div>
+    <div style={{ height: 8 }} />
+  </>
+})
+
 /* ============================ workout lifecycle ============================ */
 export function startFlow(routineId) {
   const st = S()
@@ -1156,13 +1392,43 @@ function resumeFlow(w) {
   nav('/workout')
   toast(t('Picked up where you left off'))
 }
-// What the session prescribed for one exercise. The plan's two RIR arrays collapse to the
-// one this week actually asks for: `target` is the record of what you were told to do, and
-// the alternative you were not told to do has no business in it.
-function targetFor(cfg, week) {
-  const { rirEasy, ...rest } = cfg
-  const rir = rirFor(cfg, week)
-  return rir ? { ...rest, rir } : rest
+// One exercise of a session, as the week it is trained in prescribes it.
+//
+// `raw` is the routine's entry for the block; weekCfg collapses it to this week's version, and
+// that is what the session keeps as its target — the record of what you were told to do.
+//
+// A normal week applies the progression rule, so you walk up to the bar with the right weight
+// already on the screen. A lighter week does not progress at all: it starts from your last
+// normal session and takes the block's percentage off, which is the whole of what "deload at
+// 90 %" means. The rule picks up again the week after, from the same normal session, as if
+// the lighter week had not happened (see historyFor).
+function sessionEntry(st, raw, r, week) {
+  const cfg = weekCfg(raw, week)
+  const step = defaultIncrement(cfg.id, st.unit)
+  const routineId = r && r.id
+  const base = nextPrescription(st, cfg, r)
+  if (!week || !week.easy) {
+    const sets = applyIntensifierPlan(applyPrescription(buildSets(st, cfg, { step, routineId }), base, step), cfg)
+    return { id: cfg.id, sg: cfg.sg, target: cfg, plan: base, sets }
+  }
+  const inc = cfg.inc > 0 ? cfg.inc : step
+  const name = week.easyName || t('Lighter week')
+  const pct = week.pct
+  let sets = buildSets(st, cfg, { step, routineId, preferLast: true }).map(row => {
+    if (isWarmupRow(row)) return row
+    const o = { ...row }
+    if (pct < 100 && o.w > 0) o.w = Math.max(inc, Math.round((o.w * pct / 100) / inc) * inc)
+    // Sets or reps this week were changed on purpose: aim at that, not at last time's count.
+    if (raw.lw && raw.lw.reps > 0 && modeOf(cfg) === 'reps') o.r = cfg.reps
+    return o
+  })
+  sets = applyIntensifierPlan(rerampWarmups(sets, step), cfg)
+  const plan = base.kind === 'first' || base.kind === 'off'
+    ? base
+    : { policy: base.policy, kind: 'easy', why: pct < 100
+      ? ['{0} — {1}% of your last working weight.', name, pct]
+      : ['{0} — the same weight as last time, at an easier effort.', name] }
+  return { id: cfg.id, sg: cfg.sg, target: cfg, plan, sets }
 }
 export function beginWorkout(routineId, bw) {
   const st = S()
@@ -1170,18 +1436,13 @@ export function beginWorkout(routineId, bw) {
   // The prescription is applied as the session is built, so you walk up to the bar with the
   // right weight already on the screen instead of being told about it afterwards. `plan` is
   // kept on the entry purely so the workout can explain the number it chose.
-  // Which week of the periodised plan this session falls in, resolved once: the intro and
-  // deload weeks prescribe their own RIR (see rirFor). It is stamped onto the target rather
-  // than read live, so a session opened in February still shows the RIR it was trained to.
-  const week = blockPlanStatus(st, todayISO())
-  const entries = (r ? r.ex : []).map(cfg => {
-    const plan = nextPrescription(st, cfg, r)
-    const step = defaultIncrement(cfg.id, st.unit)
-    const sets = applyIntensifierPlan(applyPrescription(buildSets(st, cfg, { step, routineId: r && r.id }), plan, step), cfg)
-    return { id: cfg.id, sg: cfg.sg, target: targetFor(cfg, week), plan, sets }
-  })
+  // Where in the plan today falls, resolved once: which block's exercises this session uses,
+  // and whether it is that block's lighter week. Stamped onto the session rather than read
+  // live, so a session opened in February still says what week it was trained in.
+  const week = planStatus(st, todayISO())
+  const entries = (r ? exOf(r, week.block.id) : []).map(raw => sessionEntry(st, raw, r, week))
   update(s => {
-    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }
+    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries, wk: weekStamp(week) }
   })
   useUI.getState().stopRest()
   nav('/workout')

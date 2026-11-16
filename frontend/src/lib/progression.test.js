@@ -636,3 +636,35 @@ describe('progression scoped to a routine', () => {
     expect(p.weight).toBeUndefined()   // the plan's own weight stands
   })
 })
+
+describe('progression across blocks and lighter weeks', () => {
+  const sets = (w, ...reps) => reps.map(r => ({ w, r, done: true }))
+  const cfg = { id: LIFT, sets: 2, reps: 8, repsMin: 6, weight: 60, prog: 'double' }
+
+  it('carries on from the last normal session, as if the deload had not happened', () => {
+    const S = { unit: 'kg', workouts: [
+      { d: '2026-09-14', routineId: 'r', entries: [{ id: LIFT, sets: sets(60, 8, 8), target: { sets: 2, reps: 8, repsMin: 6 } }] },
+      { d: '2026-09-21', routineId: 'r', wk: { easy: 'Deload' }, entries: [{ id: LIFT, sets: sets(54, 8, 8), target: { sets: 2, reps: 8, repsMin: 6 } }] },
+    ] }
+    const p = nextPrescription(S, cfg, { id: 'r' })
+    expect(p.kind).toBe('up')
+    expect(p.weight).toBe(62.5)          // from 60, not from the deload's 54
+  })
+
+  it('holds the weight once when a block changes the rep range', () => {
+    const S = { unit: 'kg', workouts: [
+      { d: '2026-09-14', routineId: 'r', entries: [{ id: LIFT, sets: sets(60, 8, 8), target: { sets: 2, reps: 8, repsMin: 6 } }] },
+    ] }
+    const p = nextPrescription(S, { ...cfg, reps: 12, repsMin: 10 }, { id: 'r' })
+    expect(p.kind).toBe('hold')
+    expect(p.weight).toBe(60)
+    expect(p.reps).toBe(10)              // the bottom of the new range
+  })
+
+  it('progresses as usual when the range is the same in both blocks', () => {
+    const S = { unit: 'kg', workouts: [
+      { d: '2026-09-14', routineId: 'r', entries: [{ id: LIFT, sets: sets(60, 8, 8), target: { sets: 2, reps: 8, repsMin: 6 } }] },
+    ] }
+    expect(nextPrescription(S, cfg, { id: 'r' }).kind).toBe('up')
+  })
+})

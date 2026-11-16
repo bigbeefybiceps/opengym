@@ -15,7 +15,7 @@ import { startFlow, finishedToday, exercisePicker, exConfigSheet, exerciseDetail
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription, defaultIncrement } from '../lib/progression.js'
-import { blockPlanStatus } from '../lib/block-plan.js'
+import { effortScale, exNow } from '../lib/block-plan.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { isWarmupRow, isDropSet, isRestPauseSet, dropsOf, clustersOf, addDrop, addCluster, removeDropAt, removeClusterAt, setDropAt, setClusterAt, nextDropWeight, nextBurstReps } from '../lib/workout-model.js'
 
@@ -31,7 +31,7 @@ function StartChooser() {
     {todayR && <div className="card" style={{ borderColor: 'var(--acc)' }}>
       <h2 className="accent">{t("Today's plan")}{todayOvr ? ' · ' + t('rescheduled') : ''}</h2>
       <div className="row between" style={{ marginBottom: 12 }}>
-        <div><div className="big">{todayR.name}</div><div className="muted small">{exCount(todayR.ex.length)}</div></div>
+        <div><div className="big">{todayR.name}</div><div className="muted small">{exCount(exNow(S, todayR).length)}</div></div>
         <span className="lrow-i" style={{ width: 38, height: 38, borderRadius: 9, fontSize: 22 }}><Icon name={glyphOf(todayR.emoji)} /></span>
       </div>
       {/* Naming it, because the button does two different things depending on the day. */}
@@ -42,7 +42,7 @@ function StartChooser() {
     {others.length > 0 && <><h4 className="sec">{t('Other routines')}</h4>
       <div className="list">{others.map(r => <div key={r.id} className="item" onClick={() => startFlow(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
-        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
+        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(exNow(S, r).length)}</div></div>
         <span className="tag acc">{finishedToday(S, r.id) ? t('Reopen') : t('Start')}</span></div>)}</div></>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow(null)}>{t('Freestyle workout (pick as you go)')}</Button>
@@ -103,7 +103,10 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   // Scoped to the session's routine: the same exercise on another day is another progression
   // with another target, and quoting it here is how upper day ends up showing arm day's sets.
   const routineId = S.active.routineId
-  const week = blockPlanStatus(S, S.active.d)
+  // The lighter week this session was started in, if it was one — read from the session
+  // itself, so moving the plan's position mid-week does not relabel a session in progress.
+  const lighterWeek = S.active.wk?.easy || null
+  const effK = effortScale(entry.target)
   const last = lastEntryFor(S, entry.id, routineId)
   const standingNote = exNoteFor(S, entry.id)
   // Only worth surfacing while there is still work left: once the exercise is finished, a note
@@ -198,20 +201,19 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       {mode === 'reps' && cfg.reps > 0 && <span className="tag nocap" style={{ color: 'var(--teal)' }}>{t('{0} reps', repRange(cfg))}</span>}
       {/* The plan's prescribed effort per working set (e.g. "RIR 1 · 0": first set 1 in
           reserve, last set to failure) — what the program asks for, not what you log. */}
-      {mode === 'reps' && Array.isArray(cfg.rir) && cfg.rir.length > 0 &&
-        <span className="tag nocap" style={{ color: 'var(--acc)' }}><Icon name="target" />{'RIR ' + cfg.rir.join(' · ')}</span>}
-      {/* Why the RIR is softer than usual. The plan eases off twice in twelve weeks and the
-          numbers above change without explanation otherwise — and an unexplained easy target
-          is one you talk yourself out of following. Read from the session's own date, so a
-          session reviewed later still says which week it was. */}
-      {mode === 'reps' && week?.easy &&
-        <span className="tag nocap" style={{ color: 'var(--yellow)' }}><Icon name="bolt" />{week.intro ? t('Intro week') : t('Deload week')}</span>}
+      {mode === 'reps' && effK &&
+        <span className="tag nocap" style={{ color: 'var(--acc)' }}><Icon name="target" />{(effK === 'rpe' ? 'RPE ' : 'RIR ') + cfg[effK].map(v => fmtNum(v)).join(' · ')}</span>}
+      {/* Why the effort is softer than usual. A lighter week changes the numbers above
+          without explanation otherwise — and an unexplained easy target is one you talk
+          yourself out of following. */}
+      {mode === 'reps' && lighterWeek &&
+        <span className="tag nocap" style={{ color: 'var(--yellow)' }}><Icon name="bolt" />{lighterWeek}</span>}
     </div>
-    {/* A periodised plan's block-2 intensity technique for the last working set, shown only
-        while block 2 is selected (Settings → During a workout → Training block). */}
-    {S.block === 2 && cfg.b2 && <div className="exnote" style={{ color: 'var(--acc)' }}>
+    {/* The block's technique for the last working set. It belongs to the exercise as this
+        block prescribes it, so it is simply there or not — no switch elsewhere decides. */}
+    {cfg.tech && <div className="exnote" style={{ color: 'var(--acc)' }}>
       <Icon name="bolt" style={{ fontSize: 13, marginRight: 5, verticalAlign: '-2px' }} />
-      {t('Block 2 — last set: {0}', cfg.b2)}
+      {t('Last set: {0}', cfg.tech)}
     </div>}
     {/* Three notes can apply to one exercise and they are not interchangeable, so each keeps its
         own line and its own icon: the plan's instruction (cfg.note, from the routine), the

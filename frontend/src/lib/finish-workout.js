@@ -54,6 +54,10 @@ export function buildCompletedWorkout(active, { end = Date.now(), prs = [], snap
     entries,
     prs,
     ...(sessionNote ? { note: sessionNote } : {}),
+    // Where in the plan this was trained — week, block, and whether it was a lighter week.
+    // Stamped when the session began, so moving the plan's position later does not rewrite
+    // what kind of week a past session was.
+    ...(active.wk ? { wk: active.wk } : {}),
     ...(resume ? { resume } : {}),
   }
 }
@@ -97,6 +101,7 @@ export function resumeWorkout(w, now = Date.now()) {
     cur: Math.min(Math.max(0, stash.cur || 0), Math.max(0, entries.length - 1)),
     entries,
     ...(w.note ? { note: w.note } : {}),
+    ...(w.wk ? { wk: w.wk } : {}),
     // ms: what the session had already accounted for. A reopen hours later must not bill the
     // gap as training time — that lands in the month's minutes and in the activity heatmap.
     resumed: { ms: Math.max(0, (w.end || w.start) - w.start), at: now, prev: w },

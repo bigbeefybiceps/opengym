@@ -961,3 +961,25 @@ describe('rep ranges as the plan states them', () => {
     expect(repRange({ reps: 8, repsMin: 0 })).toBe('8')
   })
 })
+
+/* A lighter week is trained below your level on purpose, so it is not evidence of your level. */
+describe('lighter weeks sit outside "last time"', () => {
+  const e = (w, r) => ({ id: '0025', sets: [{ w, r, done: true }] })
+  const S = { workouts: [
+    { d: '2026-09-14', routineId: 'r-up', entries: [e(60, 8)] },
+    { d: '2026-09-21', routineId: 'r-up', wk: { easy: 'Deload' }, entries: [e(54, 8)] },
+  ] }
+
+  it('steps over the deload and reads the last normal session', () => {
+    expect(lastEntryFor(S, '0025', 'r-up')).toMatchObject({ d: '2026-09-14' })
+    expect(lastEntryFor(S, '0025', 'r-up').sets[0].w).toBe(60)
+  })
+  it('falls back to a lighter session when that is all there is', () => {
+    const only = { workouts: [S.workouts[1]] }
+    expect(lastEntryFor(only, '0025', 'r-up').sets[0].w).toBe(54)
+  })
+  it('keeps the lighter session in history itself', () => {
+    expect(S.workouts).toHaveLength(2)
+    expect(historyFor(S, '0025', 'r-up')).toHaveLength(1)
+  })
+})

@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { effectiveRoutine } from '../lib/history.js'
 import { finishedToday } from '../sheets.jsx'
+import { exNow } from '../lib/block-plan.js'
 import { todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import Icon from './Icon.jsx'
@@ -19,10 +20,11 @@ export default function TabBar({ onStart }) {
   const todayR = !S.active ? effectiveRoutine(S, todayISO()) : null
   // Start, Resume, or back into the session you already finished today — one button, and the
   // label is the only thing that says which.
-  const reopens = !!todayR && todayR.ex.length > 0 && finishedToday(S, todayR.id)
+  const hasWork = !!todayR && exNow(S, todayR).length > 0
+  const reopens = hasWork && finishedToday(S, todayR.id)
   const startWorkout = () => {
     if (!S.active) {
-      if (todayR && todayR.ex.length) { onStart(todayR.id); return }
+      if (hasWork) { onStart(todayR.id); return }
     }
     nav('/workout')
   }

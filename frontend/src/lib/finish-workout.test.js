@@ -189,3 +189,18 @@ describe('a reopened session is the session you left', () => {
     expect(a.cur).toBe(0)
   })
 })
+
+describe('the week a session was trained in', () => {
+  const active = { id: 'w', d: '2026-09-21', start: 1, wk: { w: 7, of: 12, b: 'b2', bn: 'Block 2', wb: 1, easy: 'Deload' },
+    entries: [{ id: 'A', sets: [{ w: 54, r: 8, done: true }] }] }
+
+  it('is saved with the session and comes back when it is reopened', () => {
+    const saved = buildCompletedWorkout(active, { end: 2 })
+    expect(saved.wk).toEqual(active.wk)
+    expect(resumeWorkout(saved, 9).wk).toEqual(active.wk)
+  })
+  it('adds nothing to a session that never had one', () => {
+    const saved = buildCompletedWorkout({ id: 'w', d: '2026-09-21', start: 1, entries: [{ id: 'A', sets: [{ w: 54, r: 8, done: true }] }] }, { end: 2 })
+    expect('wk' in saved).toBe(false)
+  })
+})

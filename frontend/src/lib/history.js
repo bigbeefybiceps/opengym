@@ -244,7 +244,14 @@ export function historyFor(S, exId, routineId) {
   const trained = w => (w.entries || []).some(e =>
     e.id === exId && (e.sets || []).some(x => x.done && !isWarmupRow(x)))
   const all = (S?.workouts || []).filter(trained)
-  return routineId ? all.filter(w => w.routineId === routineId) : all
+  const mine = routineId ? all.filter(w => w.routineId === routineId) : all
+  // A lighter week (an intro, a deload) is trained below your level on purpose, so it is not
+  // evidence of your level. Left in, a deload at 90 % becomes "last time" the week after and
+  // the progression rule builds on the deload's weights. Those sessions stay in the log, in
+  // volume and in the stats; they are only stepped over here. If lighter sessions are all an
+  // exercise has, they are still better than nothing.
+  const normal = mine.filter(w => !(w.wk && w.wk.easy))
+  return normal.length ? normal : mine
 }
 
 export function lastEntryFor(S, exId, routineId) {

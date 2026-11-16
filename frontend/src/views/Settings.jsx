@@ -4,7 +4,6 @@ import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, fmtNum, fmtPlate, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { blockPlanStatus } from '../lib/block-plan.js'
 import { barsOf, platesOf } from '../lib/plates.js'
 import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
@@ -169,18 +168,6 @@ export default function Settings() {
       <Row icon="plate" iconTint="var(--acc)" title={t('Confirm weight after each exercise')}
         subtitle={S.askTopWeight === false ? t('The heaviest set is kept automatically — progression carries on as usual.') : null}>
         <Switch checked={S.askTopWeight !== false} onChange={v => update(s => { s.askTopWeight = v })} />
-      </Row>
-      {/* Which block of a periodised plan is running. Exercises whose plan carries a block-2
-          last-set intensity technique (cfg.b2) show it in the workout while 2 is selected. */}
-      <Row icon="bolt" iconTint="var(--orange)" title={t('Training block')}
-        subtitle={(() => {
-          const plan = blockPlanStatus(S, todayISO())
-          if (plan) return t('Training week {0} — the plan prescribes Block {1}.', plan.week, plan.suggested)
-          return S.block === 2 ? t('Last-set intensity techniques are shown in the workout.') : null
-        })()}>
-        <Segmented className="seg-inline"
-          options={[{ value: 1, label: t('Block 1') }, { value: 2, label: t('Block 2') }]}
-          value={S.block === 2 ? 2 : 1} onChange={v => update(s => { s.block = v })} />
       </Row>
     </Section>
 
