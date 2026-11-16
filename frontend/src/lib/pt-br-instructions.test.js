@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
 import ptBR from '../instr/pt-BR.js'
-import { EXDB } from './exercises-data.js'
+import { EXDB as CATALOGUE_ROWS } from './exercises-data.js'
 import { INSTR_LANGS } from './i18n-core.js'
+
+// The translation packs cover the 1,324 exercises this fork has always had. The exercises folded
+// in from the catalogue (rows with `cat`, see scripts/catalogue/build.mjs) are English-only here.
+const EXDB = CATALOGUE_ROWS.filter(exercise => !exercise.cat)
 
 describe('Brazilian Portuguese exercise instructions', () => {
   const exercises = new Map(EXDB.map(exercise => [exercise.id, exercise]))

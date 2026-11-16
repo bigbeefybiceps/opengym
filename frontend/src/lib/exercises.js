@@ -125,15 +125,19 @@ export function matchesExerciseSearch(exercise, query) {
   return searchScore(exercise, query) > 0
 }
 
-// Media normally sits next to the app (img/ and gif/, mounted into the web container).
-// A build can point them somewhere else — the demo build pulls them off a CDN instead of
-// shipping ~140 MB of images into the deployment. `import.meta.env` is undefined in plain
-// Node; the guard keeps this module loadable without Vite.
+// The stills and clips sit next to the app, in exercise-media/ (staged there from catalogue/media
+// by scripts/catalogue/stage-media.mjs). They are licensed for openGym and its non-commercial
+// forks only and must be served from the app's own origin, never hotlinked from somewhere else
+// (catalogue/media/NOTICE.md) — the env overrides exist for a build that mounts them elsewhere
+// on the same site. `import.meta.env` is undefined in plain Node; the guard keeps this module
+// loadable without Vite.
 const ENV = import.meta.env || {}
-const IMG_BASE = ENV.VITE_IMG_BASE || 'img/'
-const GIF_BASE = ENV.VITE_GIF_BASE || 'gif/'
+const IMG_BASE = ENV.VITE_IMG_BASE || 'exercise-media/still/'
+const GIF_BASE = ENV.VITE_GIF_BASE || 'exercise-media/clip/'
 export const imgSrc = ex => IMG_BASE + ex.img
 export const gifSrc = ex => GIF_BASE + ex.gif
+// The catalogue's animations are short MP4 clips, not GIFs: they need a <video>, not an <img>.
+export const isVideoSrc = src => /\.(?:mp4|webm)(?:\?|$)/i.test(String(src || ''))
 
 // Cardio exercises log time + speed instead of weight × reps.
 export const isCardio = idOrEx => (typeof idOrEx === 'string' ? EXIDX[idOrEx] : idOrEx)?.bp === 'cardio'

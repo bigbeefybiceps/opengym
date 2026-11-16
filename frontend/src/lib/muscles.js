@@ -42,6 +42,8 @@ const ALIAS = {
   abductors: 'gluteal', 'levator scapulae': 'trapezius', 'cardiovascular system': null,
   // secondaries
   shoulders: 'deltoids', deltoids: 'deltoids', 'rear deltoids': 'deltoids',
+  // the catalogue names the three heads; the body map draws one shoulder
+  'front delts': 'deltoids', 'side delts': 'deltoids', 'rear delts': 'deltoids',
   'rotator cuff': 'deltoids', quadriceps: 'quadriceps', core: 'abs', abdominals: 'abs',
   'lower abs': 'abs', chest: 'chest', 'upper chest': 'chest', 'hip flexors': 'hip-flexors',
   obliques: 'obliques', 'lower back': 'lower-back', rhomboids: 'upper-back',
