@@ -236,6 +236,13 @@ export function nextPrescription(S, cfg, routine) {
     const next = goal + repStep(cfg)
     return { policy, kind: 'up', weight: 0, reps: next, why: ['Bodyweight — every rep last time, so go for {0} this time.', next] }
   }
+  // The block changed this exercise's rep range (or you did). What the last session's reps
+  // say about this weight was said about a different target, so there is nothing to progress
+  // from yet: carry the weight over and let this session set the level for the new range.
+  if (last.goal > 0 && cfg.reps > 0 && last.goal !== cfg.reps) {
+    const bottom = isDoubleLike(policy) ? Math.min(cfg.repsMin || Math.max(1, cfg.reps - 2), cfg.reps) : undefined
+    return { policy, kind: 'hold', weight: w, reps: bottom, why: ['New rep range — same weight, to find your level at {0} reps.', cfg.reps] }
+  }
   if (isDoubleLike(policy)) {
     const top = cfg.reps || last.goal || 10
     const bottom = Math.min(cfg.repsMin || Math.max(1, top - 2), top)

@@ -6,6 +6,7 @@ import { DEMO, PERSONAL, DEMO_SEEDED } from '../lib/demo.js'
 import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder, writeAutoBackup } from '../lib/mobile.js'
 import { loadRemote, chooseLocal, forgetRemote, connect } from '../lib/remote.js'
+import { migratePlan } from '../lib/block-plan.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
@@ -18,14 +19,12 @@ export const DEF = {
   // server pull, backup import) still falls back to the `showRir` boolean this replaced and
   // keeps the column it had. See effortOf.
   reminder: { on: false, time: '08:00', tz: null }, effort: null, autoBackup: false,
-  // askWeighIn: whether starting a workout opens the body-weight check-in first. block: which
-  // training block of a periodised plan is running — routines can carry per-exercise block-2
-  // intensity techniques (cfg.b2) that only apply while block 2 is selected.
-  askWeighIn: true, block: 1,
-  // programStart anchors the block plan's week count (lib/block-plan.js); null falls back to
-  // the first logged workout. blockNudge remembers a dismissed switch-block reminder's
-  // phaseKey so it stays away until the next switch is actually due.
-  programStart: null, blockNudge: null,
+  // askWeighIn: whether starting a workout opens the body-weight check-in first.
+  askWeighIn: true,
+  // The training plan — its blocks, their lengths and lighter weeks, and the date its weeks
+  // count from. null until migratePlan writes one, which it does on every way state gets in
+  // (first load, backup import), so nothing downstream ever sees a state without it.
+  plan: null,
   // Equipment profiles (issue: filter Library/picker/routines by what you actually own —
   // e.g. "Home" vs "Gym" — building on the session-only equipment filter from issue #6).
   equipProfiles: [], activeEquipId: null, equipFilterOn: false,
@@ -39,9 +38,9 @@ const clone = o => JSON.parse(JSON.stringify(o))
 function loadState() {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return Object.assign(clone(DEF), JSON.parse(raw))
+    if (raw) return migratePlan(Object.assign(clone(DEF), JSON.parse(raw)))
   } catch (e) { /* ignore */ }
-  return clone(DEF)
+  return migratePlan(clone(DEF))
 }
 
 const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length)
@@ -108,7 +107,9 @@ export const useStore = create((set, get) => {
       mut(S)
       persist(S, push)
     },
-    replaceState(S, push = false) { persist(clone(S), push) },
+    // An imported backup may predate plans; it is brought up to shape here, at the one door
+    // every wholesale replacement comes through.
+    replaceState(S, push = false) { persist(migratePlan(clone(S)), push) },
 
     // Fires after the moments where losing local data would actually hurt — a workout just
     // logged, a routine just edited — not on every keystroke. No-op off mobile or with the

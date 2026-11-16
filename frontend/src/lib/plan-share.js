@@ -53,7 +53,25 @@ function cleanEx(e) {
   // silently — parsePlan's `dropped` counter only tracks exercises it cannot resolve at all.
   const intens = cleanIntensifier(e.intensifier)
   if (intens) o.intensifier = intens
+  // Effort targets, the last-set technique and the lighter week's own numbers are as much the
+  // prescription as sets and reps are. A plan file carries each routine as its first block
+  // prescribes it; the blocks themselves travel in a backup, not here.
+  ;['rir', 'rirEasy', 'rpe', 'rpeEasy'].forEach(k => {
+    const a = cleanEffort(e[k])
+    if (a) o[k] = a
+  })
+  if (typeof e.tech === 'string' && e.tech.trim()) o.tech = e.tech.trim().slice(0, 80)
+  if (e.lw && typeof e.lw === 'object' && (e.lw.sets > 0 || e.lw.reps > 0)) {
+    o.lw = { ...(e.lw.sets > 0 ? { sets: Math.round(e.lw.sets) } : {}), ...(e.lw.reps > 0 ? { reps: Math.round(e.lw.reps) } : {}), ...(e.lw.repsMin > 0 ? { repsMin: Math.round(e.lw.repsMin) } : {}) }
+  }
   return o
+}
+
+/** An effort array is a short list of small numbers and nothing else. */
+function cleanEffort(a) {
+  if (!Array.isArray(a) || !a.length) return null
+  const out = a.slice(0, 12).map(v => Math.max(0, Math.min(10, Math.round((Number(v) || 0) * 2) / 2)))
+  return out.length ? out : null
 }
 
 /** Clamped the same way buildSets clamps it on the way out — the stepper showed a hand-edited
