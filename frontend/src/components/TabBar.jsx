@@ -15,7 +15,7 @@ export default function TabBar({ onStart }) {
   const isGuest = useStore(s => s.isGuest())
   if (!user && !isGuest) return null
   const cur = loc.pathname.split('/')[1] || 'home'
-  const on = k => cur === k || (cur === 'history' && k === 'stats') || (cur === 'settings' && k === 'home')
+  const on = k => cur === k || ((cur === 'history' || cur === 'journal') && k === 'stats') || (cur === 'muscles' && k === 'library') || (cur === 'settings' && k === 'home')
 
   const todayR = !S.active ? effectiveRoutine(S, todayISO()) : null
   // Start, Resume, or back into the session you already finished today — one button, and the

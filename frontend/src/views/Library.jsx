@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { EXDB, BODYPARTS, allExercises, equipmentOf, matchExercise } from '../lib/exercises.js'
 import { activeProfile, exAvailable } from '../lib/equipment.js'
@@ -11,6 +12,7 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 
 export default function Library() {
+  const nav = useNavigate()
   const S = useStore(s => s.S)
   const [q, setQ] = useState('')
   const [bp, setBp] = useState('')
@@ -24,9 +26,23 @@ export default function Library() {
   // Drop the equipment filter if the search narrowed it away, so you never hit a dead end.
   const eqOn = eqOpts.includes(eq) ? eq : ''
   const f = eqOn ? eqFiltered.filter(e => e.eq === eqOn) : eqFiltered
+  // Your own exercises, counted the way the list below shows them (allExercises puts every
+  // custom entry in front of the catalogue; deleting one removes it from customEx outright).
+  const ownCount = (S.customEx || []).filter(c => c && c.id).length
+  const total = fmtNum(EXDB.length)
 
   return <>
-    <div className="hdr"><div><h1>{t('Exercises')}</h1><div className="sub">{t('{0} exercises with animations', EXDB.length)}</div></div></div>
+    {/* The header as upstream openGym has it: the title, By muscle beside it (the body-map
+        explorer, views/Muscles.jsx), and the size of the library on a line of its own. */}
+    <div className="hdr lib-hdr"><div><h1>{t('Exercises')}</h1></div>
+      <div className="row lib-hdr-btns" style={{ gap: 6 }}>
+        <Button size="sm" variant="tinted" icon="figureStrength" onClick={() => nav('/muscles')}>{t('By muscle')}</Button>
+      </div>
+      <div className="sub lib-count">{ownCount === 0
+        ? t('{0} exercises with animations', total)
+        : ownCount === 1 ? t('{0} animated exercises + 1 of your own', total)
+          : t('{0} animated exercises + {1} of your own', total, ownCount)}</div>
+    </div>
     <div className="search" style={{ marginBottom: 10 }}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
       <input className="input" placeholder={t('Search…')} value={q} onChange={e => { setQ(e.target.value); setShown(40) }} /></div>
     {profile && <div className="small dim row" style={{ margin: '-4px 2px 10px', gap: 6, alignItems: 'center' }}>

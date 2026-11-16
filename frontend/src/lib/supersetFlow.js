@@ -58,3 +58,40 @@ export function supersetFlowStep(entries, unit, fromIdx) {
   const roundDone = !unit.slice(pos + 1).some(idx => hasWork(entries, idx))
   return { unitDone: false, roundDone, nextIdx }
 }
+
+/* ---------- an exercise's own rest ---------- */
+// Set from the exercise's ⋯ menu during a workout (ported from upstream openGym). It lives on
+// the exercise's target — `restSec` for a time of its own, `restOff` for no timer — beside the
+// sets and reps it belongs to, so it travels with the plan and is recorded with the session.
+
+/** The exercise's own rest: seconds, 0 for "no timer", null when it follows the default. */
+export function ownExerciseRest(target) {
+  if (!target) return null
+  if (target.restOff === true) return 0
+  const sec = Number(target.restSec)
+  return sec > 0 ? Math.round(sec) : null
+}
+
+/** `target` with its own rest set to `sec` — null back to the default, 0 for no timer. */
+export function withExerciseRest(target, sec) {
+  const { restSec: _sec, restOff: _off, ...rest } = target || {}
+  if (sec == null) return rest
+  return sec > 0 ? { ...rest, restSec: Math.round(sec) } : { ...rest, restOff: true }
+}
+
+/**
+ * How long to rest after a set of `unit` (the entry indexes of one exercise or one superset).
+ * A lone exercise rests its own time, or the default. A superset rests once per round, so it
+ * takes the longest rest any of its members asks for; members that say nothing do not vote,
+ * and it only goes without a timer when every member that has a say says so. 0 = no timer.
+ */
+export function restSecFor(entries, unit, dflt) {
+  const own = (unit || []).map(i => ownExerciseRest(entries?.[i]?.target)).filter(v => v != null)
+  return own.length ? Math.max(...own) : dflt
+}
+
+/** "1:30" for a rest — minutes and seconds, the way the timer itself counts. */
+export const fmtRest = sec => {
+  const s = Math.max(0, Math.round(Number(sec) || 0))
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
+}

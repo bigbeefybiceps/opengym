@@ -26,6 +26,9 @@ function useBodyPaths() {
   return paths
 }
 
+// `selected`: one muscle, or several (the muscle explorer's filter).
+const isSel = (selected, slug) => (Array.isArray(selected) ? selected.includes(slug) : selected === slug)
+
 function View({ view, levels, onMuscle, selected }) {
   return (
     <svg className="bm-v" viewBox={view.vb} role="img">
@@ -34,7 +37,7 @@ function View({ view, levels, onMuscle, selected }) {
       {MUSCLES.map(slug => (view.p[slug] || []).map((d, i) =>
         <path
           key={slug + i}
-          className={'bm-m l' + (levels[slug] || 0) + (selected === slug ? ' sel' : '')}
+          className={'bm-m l' + (levels[slug] || 0) + (isSel(selected, slug) ? ' sel' : '')}
           d={d}
           onClick={onMuscle ? () => onMuscle(slug) : undefined}
         >

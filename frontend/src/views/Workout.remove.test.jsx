@@ -39,9 +39,27 @@ function renderWorkout(entries) {
   act(() => root.render(<MemoryRouter><Workout /></MemoryRouter>))
 }
 
-function removeButton() {
+// Removing an exercise is in that exercise's own ⋯ menu, not on the page: it throws logged
+// work away, so it is not left a stray tap from a set. The menu is a sheet; these tests render
+// the newest one themselves, since the app's sheet host is not mounted here.
+let sheetRoot
+let sheetBox
+function pageRemoveButton() {
   return [...container.querySelectorAll('button')].find(button => button.textContent.includes('Remove exercise'))
 }
+function openExerciseMenu() {
+  const more = container.querySelector('button[aria-label="More"]')
+  if (!more) return null
+  act(() => more.click())
+  const sheet = useUI.getState().sheets.at(-1)
+  sheetBox = document.createElement('div')
+  document.body.appendChild(sheetBox)
+  sheetRoot = createRoot(sheetBox)
+  act(() => sheetRoot.render(sheet.render(() => useUI.getState().closeSheet(sheet.id))))
+  return sheetBox
+}
+// By its own label: the More row's subtitle names what it folds away.
+const menuRow = (box, label) => [...box.querySelectorAll('.menu-item')].find(row => row.querySelector('.tt')?.textContent === label)
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -52,9 +70,13 @@ beforeEach(() => {
   useStore.setState({ S: clone(DEF), user: null })
   root = null
   container = null
+  sheetRoot = null
+  sheetBox = null
 })
 
 afterEach(() => {
+  if (sheetRoot) act(() => sheetRoot.unmount())
+  if (sheetBox) sheetBox.remove()
   if (root) act(() => root.unmount())
   if (container) container.remove()
   useUI.getState().stopRest()
@@ -64,14 +86,43 @@ afterEach(() => {
 })
 
 describe('active-session exercise removal', () => {
+  it('keeps removal off the page and in the exercise menu, behind a confirmation', () => {
+    renderWorkout([entry('1001')])
+    expect(pageRemoveButton()).toBeUndefined()
+
+    const menu = openExerciseMenu()
+    const remove = menuRow(menu, 'Remove exercise')
+    expect(remove).toBeTruthy()
+    expect(remove.getAttribute('aria-disabled')).toBeNull()
+
+    act(() => remove.click())
+    // The menu closed and a confirmation took its place; nothing is removed until it is answered.
+    expect(useUI.getState().sheets).toHaveLength(1)
+    expect(useUI.getState().sheets[0].kind).toBe('center')
+    expect(useStore.getState().S.active.entries).toHaveLength(1)
+  })
+
   it('disables removal for the whole duration of a timed hold', () => {
     renderWorkout([entry('1001')])
-    expect(removeButton()).toBeTruthy()
-    expect(removeButton().disabled).toBe(false)
-
     act(() => useUI.getState().startWork(30, 'Hold', vi.fn()))
 
-    expect(removeButton().disabled).toBe(true)
+    const remove = menuRow(openExerciseMenu(), 'Remove exercise')
+    expect(remove.getAttribute('aria-disabled')).toBe('true')
+    act(() => remove.click())
+    expect(useUI.getState().sheets).toHaveLength(1)   // still only the menu: the tap did nothing
+  })
+
+  it('folds supersets and order under More, and has no warm-up or superset buttons on the page', () => {
+    renderWorkout([entry('1001'), entry('1002')])
+    const onPage = [...container.querySelectorAll('button')].map(button => button.textContent)
+    expect(onPage.some(text => /superset|warm-up/i.test(text))).toBe(false)
+
+    const menu = openExerciseMenu()
+    expect(menuRow(menu, 'Add warm-up set')).toBeTruthy()
+    expect(menuRow(menu, 'Make superset with next')).toBeUndefined()
+    act(() => menuRow(menu, 'More').click())
+    expect(menuRow(menu, 'Make superset with next')).toBeTruthy()
+    expect(menuRow(menu, 'Move down')).toBeTruthy()
   })
 
   it('cancels a pending timed callback before indexes shift and cleans a one-member group', () => {
@@ -94,9 +145,10 @@ describe('active-session exercise removal', () => {
     expect(active.entries[0].sets[0].sec).toBeUndefined()
   })
 
-  it('hides the remove control for an empty freestyle session', () => {
+  it('has no exercise menu for an empty freestyle session', () => {
     renderWorkout([])
-    expect(removeButton()).toBeUndefined()
+    expect(pageRemoveButton()).toBeUndefined()
+    expect(openExerciseMenu()).toBeNull()
   })
 })
 

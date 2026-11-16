@@ -1065,3 +1065,100 @@ h4.sec{
 
 /* a Home card that is switched off, in the layout sheet: still listed, still movable, dimmed */
 .lrow.lrow-off .lrow-m{opacity:.45}
+
+/* ------------------------------------------------- ported from upstream -- */
+/* --- menu sheet (the workout's ⋯ menus, sheets.jsx menuSheet) --- */
+.menu-list .menu-item{min-height:52px;padding:8px 12px;cursor:pointer}
+.menu-list .menu-item .lrow-i{width:32px;height:32px;font-size:17px;background:var(--surface-2);color:var(--label)}
+.menu-list .menu-item.danger .tt,.menu-list .menu-item.danger .lrow-i{color:var(--red)}
+.menu-list .menu-item.disabled{opacity:.4;pointer-events:none}
+.menu-on{color:transparent;font-size:17px;flex:none}
+.menu-on.is-on{color:var(--acc)}
+/* A grouped menu (menuSheet's `sections`): groups sit apart, each with a small header, so a long
+   list reads as a few short ones. */
+.menu-group.grouped+.menu-group.grouped{margin-top:14px}
+.menu-group.grouped .menu-list{gap:0;background:var(--surface);border-radius:var(--r-card);overflow:hidden}
+.menu-group.grouped .menu-item{border-radius:0;position:relative}
+.menu-group.grouped .menu-item+.menu-item::before{
+  content:'';position:absolute;top:0;left:56px;right:0;height:var(--hair);background:var(--sep-op);
+}
+.menu-sec{font-size:13px;font-weight:600;color:var(--label-2);padding:0 6px 6px;letter-spacing:.005em}
+.menu-chev{color:var(--label-3);font-size:14px;flex:none}
+/* The "More" fold: its sub lists what is inside on one line, cut with an ellipsis. */
+.menu-list .menu-more .grow{min-width:0}
+.menu-list .menu-more .ss{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* --- the workout header and its layouts (views/Workout.jsx, lib/workout-layout.js) --- */
+.hdr.whdr-bar{align-items:center;gap:6px}
+.whdr-mid{flex:1;min-width:0;text-align:center}
+.whdr-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* In the list the whole session scrolls under the header, so it stays pinned: the name, the
+   clock, the set counter and Finish are what you want in view from the middle of a long stack. */
+.whdr.stick{
+  position:sticky;top:0;z-index:20;
+  margin:calc(-1 * (var(--sat) + 8px)) calc(-1 * var(--pad)) 6px;
+  padding:calc(var(--sat) + 8px) var(--pad) 0;
+  background:var(--bg);background:color-mix(in srgb,var(--bg) 94%,transparent);
+  -webkit-backdrop-filter:saturate(180%) blur(10px);backdrop-filter:saturate(180%) blur(10px);
+}
+.whdr.stick .hdr{margin-bottom:12px}
+.whdr.stick .wprog{margin-bottom:10px}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .whdr.stick{background:var(--bg)}
+}
+.workout-list{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.wl-unit{
+  border-radius:var(--r-lg);padding:14px 14px 4px;background:var(--surface-2);
+  scroll-margin-top:calc(var(--sat) + 96px);
+}
+.wl-unit .card{margin-bottom:10px}
+.wl-unit.cur{box-shadow:inset 0 0 0 1.5px var(--acc-line)}
+.wl-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.wl-hd .chip{padding:4px 11px;font-size:13px}
+@media (max-width:380px){.wl-unit{padding:10px 8px 2px}}
+/* The end of the workout: adding an exercise and the session's note as one inset list of two
+   rows, so the finish button under them is the one thing that stands out. */
+.wk-end-row{min-height:46px}
+.wk-end-i{flex:none;font-size:20px;color:var(--label-2)}
+.wk-end-row.acc,.wk-end-row.acc .wk-end-i{color:var(--acc)}
+.wk-end-row.has-note .wk-end-i{color:var(--yellow)}
+.wk-end-note{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+
+/* --- exercise library header, muscle explorer (views/Library.jsx, components/MuscleExplorer.jsx) --- */
+/* The header keeps "Exercises" beside its buttons; the count line takes a row of its own
+   underneath, so a long count never pushes a button off a narrow phone. */
+.hdr.lib-hdr{flex-wrap:wrap;align-items:center;row-gap:0}
+.hdr.lib-hdr>.sub.lib-count{flex:1 0 100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:360px){.hdr.lib-hdr>.sub.lib-count{white-space:normal;overflow:visible;text-overflow:clip}}
+.hdr.lib-hdr .lib-hdr-btns .btn{white-space:nowrap}
+.bodymap.tappable .bm-m{cursor:pointer}
+.mx-groups .chip{display:inline-flex;align-items:center;gap:4px}
+.mx-groups .chip .mx-chev{display:inline-block;font-size:.78em;opacity:.7}
+
+/* --- journal (views/Journal.jsx): a feed of notes. The note is the content, so it gets the
+   line; where it came from sits under it. --- */
+.journal .searchf{margin-bottom:8px}
+.journal .chips{margin-bottom:6px}
+.journal .chip{display:inline-flex;align-items:center;gap:5px}
+.journal .chip .icn{font-size:14px}
+.jn-filters .chip .icn:last-child{font-size:12px;color:var(--label-3)}
+.jn-filters .chip.on .icn:last-child,.jn-folders .chip.on .icn:last-child{color:inherit}
+.jn-kinds .chip .dim{font-variant-numeric:tabular-nums}
+.jn-kinds .chip.on .dim{color:inherit;opacity:.7}
+.jn-save{background:transparent;box-shadow:inset 0 0 0 1px var(--sep);color:var(--acc)}
+.jn-group .sec{margin-top:18px}
+.jn-row{align-items:flex-start;cursor:pointer}
+.jn-row .lrow-i{margin-top:2px}
+.jn-text{
+  font-size:15px;line-height:1.4;color:var(--label);margin:2px 0 3px;white-space:pre-wrap;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+}
+.jn-standing .jn-i,.jn-tip .jn-i{background:var(--surface-3);color:var(--yellow)}
+.jn-cardio .jn-i{background:var(--surface-3);color:var(--teal)}
+.jn-none{text-align:center;padding:28px 12px}
+.jn-view-kind{display:flex;align-items:center;gap:6px;margin-bottom:6px;text-transform:none}
+.jn-view-text{font-size:16px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;
+  background:var(--surface);border-radius:12px;padding:12px 14px}
+/* a long note under a menu row (the session note, an exercise's) stays two lines */
+.menu-list .menu-item .ss{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.menu-list .menu-more .ss{display:block}

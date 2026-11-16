@@ -24,6 +24,8 @@ import Workout from './views/Workout.jsx'
 import Stats from './views/Stats.jsx'
 import History from './views/History.jsx'
 import Library from './views/Library.jsx'
+import Muscles from './views/Muscles.jsx'
+import Journal from './views/Journal.jsx'
 import Settings from './views/Settings.jsx'
 import Admin from './views/Admin.jsx'
 
@@ -92,6 +94,8 @@ function Shell() {
               <Route path="/stats" element={<Stats />} />
               <Route path="/history" element={<History />} />
               <Route path="/library" element={<Library />} />
+              <Route path="/muscles" element={<Muscles />} />
+              <Route path="/journal" element={<Journal />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/admin" element={user?.admin ? <Admin /> : <Navigate to="/home" replace />} />
               <Route path="*" element={<Navigate to="/home" replace />} />

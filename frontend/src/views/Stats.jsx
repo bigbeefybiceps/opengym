@@ -20,7 +20,7 @@ import {
   hasEffort, displayScale, scaleName, toScale, avgRir, effortSummary, effortWeeks,
   effortHistogram, isHardSet, HARD_RIR
 } from '../lib/effort.js'
-import { Button, Segmented, SelectRow } from '../components/ui.jsx'
+import { Button, Segmented, SelectRow, Row } from '../components/ui.jsx'
 import { isWarmupRow } from '../lib/workout-model.js'
 
 // Which muscles the training in a window actually hit — and, the point of the card,
@@ -491,5 +491,11 @@ export default function Stats() {
       </div>
       <div className="list">{[...workouts].reverse().slice(0, 6).map(w => <WorkoutRow key={w.id} w={w} onClick={() => workoutDetailSheet(w)} />)}</div>
     </>}
+
+    {/* Every note in one feed (views/Journal.jsx): workouts, exercises, routine tips, cardio. */}
+    <h4 className="sec" style={{ marginTop: 22 }}>{t('More')}</h4>
+    <div className="sect-b">
+      <Row icon="note" title={t('Journal')} subtitle={t('Every note you wrote, in one place.')} accessory="chevron" onClick={() => nav('/journal')} />
+    </div>
   </>
 }

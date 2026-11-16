@@ -61,6 +61,9 @@ function cleanEx(e) {
     if (a) o[k] = a
   })
   if (typeof e.tech === 'string' && e.tech.trim()) o.tech = e.tech.trim().slice(0, 80)
+  // The exercise's own rest (lib/supersetFlow.js ownExerciseRest): no timer, or 5 s to 15 min.
+  if (e.restOff === true) o.restOff = true
+  else if (Number(e.restSec) > 0) o.restSec = Math.max(5, Math.min(900, Math.round(Number(e.restSec))))
   if (e.lw && typeof e.lw === 'object' && (e.lw.sets > 0 || e.lw.reps > 0)) {
     o.lw = { ...(e.lw.sets > 0 ? { sets: Math.round(e.lw.sets) } : {}), ...(e.lw.reps > 0 ? { reps: Math.round(e.lw.reps) } : {}), ...(e.lw.repsMin > 0 ? { repsMin: Math.round(e.lw.repsMin) } : {}) }
   }

@@ -3,18 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { exOr } from '../lib/exercises.js'
-import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, freestyleConfig, defaultConfig, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, repRange, EFFORT, effortOf, stepEffort, capEffort, cascadeWeight, insertWarmupRow, removeRowAt, pairAdjacent, unpairSuperset, cleanupSg, applyIntensifierPlan, pinnedNoteFor, exNoteFor } from '../lib/history.js'
+import { effectiveRoutine, lastEntryFor, bestWeightFor, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, repRange, EFFORT, effortOf, stepEffort, capEffort, cascadeWeight, insertWarmupRow, removeRowAt, pairAdjacent, unpairSuperset, cleanupSg, applyIntensifierPlan, pinnedNoteFor, exNoteFor } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t, exerciseNameFor } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
-import { setProgressHighWater, supersetFlowStep, restAfterSet, restOnRecheck } from '../lib/supersetFlow.js'
+import { setProgressHighWater, supersetFlowStep, restAfterSet, restOnRecheck, ownExerciseRest, restSecFor, fmtRest } from '../lib/supersetFlow.js'
+import { canMoveActiveWorkoutEntry, moveActiveWorkoutEntry } from '../lib/active-workout-order.js'
+import { workoutViewOf, setWorkoutView, WORKOUT_VIEWS, WORKOUT_VIEW_LABEL, WORKOUT_VIEW_ICON } from '../lib/workout-layout.js'
+import { youtubeSearchUrl } from '../lib/youtube.js'
 import { elapsedStart } from '../lib/finish-workout.js'
 import Media from '../components/Media.jsx'
-import { startFlow, finishedToday, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, plateCalcSheet, finishWorkout, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet } from '../sheets.jsx'
+import { startFlow, finishedToday, exerciseDetailSheet, topWeightSheet, plateCalcSheet, finishWorkout, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet, menuSheet, exerciseHistorySheet, addExerciseToActive, swapActiveWorkoutExercise, exerciseRestSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
-import { nextPrescription, applyPrescription, defaultIncrement } from '../lib/progression.js'
+import { defaultIncrement } from '../lib/progression.js'
 import { effortScale, exNow } from '../lib/block-plan.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { isWarmupRow, isDropSet, isRestPauseSet, dropsOf, clustersOf, addDrop, addCluster, removeDropAt, removeClusterAt, setDropAt, setClusterAt, nextDropWeight, nextBurstReps } from '../lib/workout-model.js'
@@ -61,7 +64,9 @@ function Elapsed({ start }) {
 }
 
 /* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ---------- */
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onRemoveSetAt, onStartTimed, onPairPrev, onPairNext }) {
+// `compact` shrinks the block for a superset member; `dense` (the Compact layout) goes further
+// and drops the animation and the muscle / equipment tags, leaving the numbers.
+function ExerciseBlock({ entryIdx, compact, dense, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onRemoveSetAt, onStartTimed, onPairPrev, onPairNext, onUnpair, onSwap, onRest, onMoveUp, onMoveDown, canMoveUp, canMoveDown, onRemoveExercise }) {
   const S = useStore(s => s.S)
   const update = useStore(s => s.update)
   const working = useUI(s => s.work)
@@ -166,10 +171,51 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       <button aria-label="Increase" onClick={() => onChange(Math.max(0, Math.round(((value || 0) + step) * 100) / 100))}><Icon name="plus" /></button>
     </div>
   )
+  // Everything about this exercise that is not a set you are logging right now lives behind one
+  // button (ported from upstream openGym). What used to be a row of buttons in the header, a
+  // "make superset" strip under it, a warm-up button under the sets and a remove button below
+  // the card is a single list you open once a session. It leads with the handful you reach for
+  // at the gym (note, swap, warm-up, rest, history) and folds the rest under one More row: the
+  // how-to and the order of the session. Remove stays last, on its own, and asks before it acts
+  // — it is the one entry here that throws logged work away, so it is not a tap away from a set.
+  // Disabled while a timed hold runs: the hold's callback closes over this exercise's index.
+  const busy = !!working
+  const ownRest = ownExerciseRest(entry.target)
+  const restSub = ownRest === 0 ? t('No timer') : ownRest ? fmtRest(ownRest) : t('Default ({0})', fmtRest(S.restSec))
+  const yt = youtubeSearchUrl(ex)
+  const openMore = () => menuSheet({
+    title: exerciseNameFor(ex),
+    titleClass: 'capitalize',
+    sections: [
+      { items: [
+        { icon: 'note', label: entry.note ? t('Edit note') : t('Add note'), sub: entry.note || undefined, onClick: () => exerciseNoteSheet(entryIdx) },
+        onSwap && { icon: 'swap', label: t('Swap exercise'), sub: t('This workout only'), onClick: onSwap, disabled: busy },
+        { icon: 'sunrise', label: t('Add warm-up set'), onClick: onAddWarmup },
+        onRest && { icon: 'timer', label: t('Rest timer'), sub: restSub, onClick: onRest },
+        { icon: 'history', label: t('History'), sub: last ? t('Last time') + ' ' + fmtDate(last.d) : undefined, onClick: () => exerciseHistorySheet(entry.id) },
+      ] },
+      { more: [
+        { title: t('Exercise'), items: [
+          { icon: 'info', label: t('How to do it'), onClick: () => exerciseDetailSheet(ex) },
+          yt && { icon: 'play', label: t('Watch on YouTube'), sub: t('Opens a search for good form'), onClick: () => window.open(yt, '_blank', 'noopener') },
+        ] },
+        { title: t('Order and supersets'), items: [
+          onPairPrev && { icon: 'link', label: t('Make superset with previous'), onClick: onPairPrev },
+          onPairNext && { icon: 'link', label: t('Make superset with next'), onClick: onPairNext },
+          onUnpair && { icon: 'link', label: t('Unpair superset'), onClick: onUnpair },
+          onMoveUp && { icon: 'chevronUp', label: t('Move up'), onClick: onMoveUp, disabled: busy || !canMoveUp },
+          onMoveDown && { icon: 'chevronDown', label: t('Move down'), onClick: onMoveDown, disabled: busy || !canMoveDown },
+        ] },
+      ] },
+      { items: [
+        onRemoveExercise && { icon: 'trash', label: t('Remove exercise'), onClick: onRemoveExercise, danger: true, disabled: busy },
+      ] },
+    ],
+  })
   return <>
-    <Media ex={ex} key={entry.id} compact={compact} minimizable />
+    {!dense && <Media ex={ex} key={entry.id} compact={compact} minimizable />}
     <div className="row between" style={{ marginBottom: 6 }}>
-      <div style={{ fontSize: compact ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', textTransform: 'capitalize', lineHeight: 1.2 }}>{exerciseNameFor(ex)}</div>
+      <div style={{ fontSize: (compact || dense) ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', textTransform: 'capitalize', lineHeight: 1.2 }}>{exerciseNameFor(ex)}</div>
       <div className="row" style={{ gap: 2, flex: 'none' }}>
         {/* Only where there is a load to put on something — a bodyweight or cardio block has
             nothing to slice into plates. Prefilled with the set you are about to lift. */}
@@ -178,24 +224,17 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
             const work = entry.sets.filter(s => !isWarmupRow(s))
             plateCalcSheet((work.find(s => !s.done) || work[0] || {}).w || cfg.weight || 0)
           }}><Icon name="plate" /></button>}
-        <button className="iconbtn" aria-label={t('Note')} title={t('Note')}
-          style={entry.note ? { color: 'var(--acc)' } : undefined}
-          onClick={() => exerciseNoteSheet(entryIdx)}><Icon name="pencil" /></button>
-        <button className="iconbtn" aria-label={t('Details')} onClick={() => exerciseDetailSheet(ex)}><Icon name="info" /></button>
+        <button className="iconbtn" aria-label={t('More')} title={t('More')} aria-haspopup="dialog" onClick={openMore}><Icon name="more" /></button>
       </div>
     </div>
-    {!compact && (onPairPrev || onPairNext) && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-      {onPairPrev && <Button size="xs" variant="tinted" icon="link" title={t('Make superset with previous')} onClick={onPairPrev}>{t('Make superset with previous')}</Button>}
-      {onPairNext && <Button size="xs" variant="tinted" icon="link" title={t('Make superset with next')} onClick={onPairNext}>{t('Make superset with next')}</Button>}
-    </div>}
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
       {cardio && <span className="tag acc"><Icon name="figureRun" />{t('Cardio')}</span>}
       {/* You log the total; this is the split, so the set in front of you is unambiguous
           without the rep count having to mean two different things (issue #31). */}
       {!cardio && !timed && isPerSide(cfg) && <span className="tag acc nocap"><Icon name="shuffle" />{t('{0} per side', fmtNum(sideReps(entry.sets.find(s => !s.done)?.r ?? entry.sets[0]?.r)))}</span>}
-      {(ex.tg || ex.bp) && <span className="tag">{t(ex.tg || ex.bp)}</span>}
-      {ex.eq && <span className="tag">{t(ex.eq)}</span>}
-      {best > 0 && <span className="tag nocap">{t('Best:')} {fmtNum(best)} {S.unit}</span>}
+      {!dense && (ex.tg || ex.bp) && <span className="tag">{t(ex.tg || ex.bp)}</span>}
+      {!dense && ex.eq && <span className="tag">{t(ex.eq)}</span>}
+      {!dense && best > 0 && <span className="tag nocap">{t('Best:')} {fmtNum(best)} {S.unit}</span>}
       {/* The range the plan prescribes, beside the effort it asks for. The rows below are
           pre-filled with one number from inside it; this is what that number is a part of. */}
       {mode === 'reps' && cfg.reps > 0 && <span className="tag nocap" style={{ color: 'var(--teal)' }}>{t('{0} reps', repRange(cfg))}</span>}
@@ -218,7 +257,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     {/* Three notes can apply to one exercise and they are not interchangeable, so each keeps its
         own line and its own icon: the plan's instruction (cfg.note, from the routine), the
         standing fact about the movement (exNotes), and the message you pinned to yourself last
-        session. Today's own note is edited through the button in the header and shown last. */}
+        session. Today's own note is edited from the ⋯ menu and shown last. */}
     {cfg.note && <div className="exnote">{cfg.note}</div>}
     {standingNote && <div className="exnote"><Icon name="info" style={{ fontSize: 13, marginRight: 5, verticalAlign: '-2px' }} />{standingNote}</div>}
     {pinnedNote && <div className="exnote" style={{ color: 'var(--yellow)' }}>
@@ -294,8 +333,9 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
         </div>
       })}
       <div style={{ height: 8 }} />
+      {/* Adding a warm-up set is in the ⋯ menu: it is done once, before the first set, and
+          these two are the ones reached for between sets. */}
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        <Button size="sm" icon="flame" onClick={onAddWarmup}>{t('Add warm-up set')}</Button>
         <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>
         <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>
       </div>
@@ -329,9 +369,19 @@ function ActiveWorkout() {
   const unit = A.entries.length ? unitOf(units, cur) : []
   const unitIdx = units.findIndex(u => u === unit)
   const isSuperset = unit.length > 1
+  // How the session is laid out (the header's ⋯ → Layout, lib/workout-layout.js): one exercise
+  // at a time, or every exercise stacked on one page, with or without the animations.
+  const view = workoutViewOf(S)
+  const listMode = view !== 'cards'
+  const dense = view === 'compact'
   // Superset flow: keep the active exercise in view - completing a set scrolls to the
   // next exercise in the group, then back up to the first exercise of the next round.
   const exRefs = useRef({})
+  // The list scrolls to the current exercise when it opens and when finishing one moves the
+  // marker on — not when you move the marker yourself, since what you tapped is already in view.
+  const unitRefs = useRef({})
+  const followCur = useRef(true)
+  useEffect(() => { followCur.current = true }, [listMode])
   const progressHighWater = useRef(A.entries.map(e => e.sets.filter(s => s.done).length))
   // The marks are index-keyed, and removing an exercise shifts every index above it down
   // (removeActiveExercise splices). Re-baseline whenever the list length changes, otherwise a
@@ -340,10 +390,26 @@ function ActiveWorkout() {
     progressHighWater.current = A.entries.map(e => e.sets.filter(s => s.done).length)
   }, [A.entries.length])
   useEffect(() => {
+    if (listMode && !isSuperset) {
+      if (!followCur.current) return
+      // A beat later, not now: the marker usually moves as a sheet closes (Layout → List, the
+      // top-weight sheet), and a closing sheet steps back in history, which puts the page's
+      // scroll back where it was and would cancel a scroll started in the same moment. The
+      // request stays open until the scroll happens, so a marker that moves twice in that beat
+      // still ends with the page on the exercise it settled on.
+      const first = unit[0]
+      const timer = setTimeout(() => {
+        followCur.current = false
+        const sec = unitRefs.current[first]
+        if (sec && typeof sec.scrollIntoView === 'function') sec.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+    followCur.current = false
     if (!isSuperset) return
     const el = exRefs.current[cur]
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [cur, isSuperset, A.entries.length])
+  }, [cur, isSuperset, A.entries.length, listMode])
 
   const total = A.entries.reduce((n, e) => n + e.sets.length, 0)
   const done = setsDoneActive(A)
@@ -379,11 +445,18 @@ function ActiveWorkout() {
   const unpairAt = idx => update(s => {
     s.active.entries = unpairSuperset(s.active.entries, idx)
   })
-  const onPairPrev = !isSuperset && cur > 0 ? () => pairAt(cur - 1, cur) : null
-  const onPairNext = !isSuperset && cur < A.entries.length - 1 ? () => pairAt(cur, cur + 1) : null
+  // Move up / down from an exercise's ⋯ menu (lib/active-workout-order.js): a lone exercise
+  // changes places with the block next to it, a superset member with the member next to it.
+  const moveEntry = (idx, dir) => {
+    if (useUI.getState().work) return
+    let res = null
+    update(s => { if (s.active) res = moveActiveWorkoutEntry(s.active, idx, dir) }, true)
+    // The high-water marks are index-keyed: each one follows its exercise to its new position.
+    if (res) { const old = progressHighWater.current; progressHighWater.current = res.indices.map(i => old[i] || 0) }
+  }
 
-  // Remove a whole exercise from the session. The confirmation always asks first; in a
-  // superset it asks WHICH exercise of the group to remove.
+  // Remove a whole exercise from the session, from that exercise's own ⋯ menu — so there is
+  // never a question of which one is meant. The confirmation always asks first.
   const removeExercise = removeActiveExercise
   const confirmRemoveExercise = idx => {
     const e = A.entries[idx]
@@ -397,22 +470,37 @@ function ActiveWorkout() {
       confirmText: t('Remove'), danger: true, onConfirm: () => removeExercise(idx)
     })
   }
-  const removeExerciseSheet = () => {
-    if (unit.length > 1) {
-      useUI.getState().openSheet(close => (
-        <div>
-          <h3>{t('Remove exercise')}</h3>
-          <div className="muted small" style={{ marginBottom: 12 }}>{t('Which exercise in this superset do you want to remove?')}</div>
-          <div className="list">
-            {unit.map(idx => <div key={idx} className="item" onClick={() => { close(); confirmRemoveExercise(idx) }}>
-              <div className="grow"><div className="tt">{exerciseNameFor(exOr(A.entries[idx]?.id))}</div></div>
-              <Icon name="chevronRight" />
-            </div>)}
-          </div>
-        </div>
-      ))
-    } else confirmRemoveExercise(cur)
+  // One prop object per exercise, so Cards and the list share the exact same wiring: the set
+  // handlers, and everything the exercise's ⋯ menu can do to it.
+  const blockProps = idx => {
+    const grouped = unitOf(units, idx).length > 1
+    return {
+      onToggle: i => toggle(idx, i), onField: (i, f, v) => setField(idx, i, f, v),
+      onAddSet: () => addSet(idx), onRemoveSet: () => removeSet(idx), onAddWarmup: () => addWarmup(idx),
+      onRemoveSetAt: i => removeSetAt(idx, i), onStartTimed: i => startTimed(idx, i),
+      onPairPrev: !grouped && idx > 0 ? () => pairAt(idx - 1, idx) : null,
+      onPairNext: !grouped && idx < A.entries.length - 1 ? () => pairAt(idx, idx + 1) : null,
+      onUnpair: grouped ? () => unpairAt(idx) : null,
+      onSwap: () => swapActiveWorkoutExercise(idx),
+      onRest: () => exerciseRestSheet(idx),
+      onMoveUp: () => moveEntry(idx, -1), onMoveDown: () => moveEntry(idx, 1),
+      canMoveUp: canMoveActiveWorkoutEntry(A, idx, -1), canMoveDown: canMoveActiveWorkoutEntry(A, idx, 1),
+      onRemoveExercise: () => confirmRemoveExercise(idx),
+    }
   }
+
+  // Cards walks the session top to bottom, so "nothing left after this" is being the last unit
+  // and "next" is the one below. The list can be trained in any order: there it is every other
+  // unit being finished, and the next one down that still has work.
+  const openUnit = (entries, u) => u.some(i => entries[i].sets.some(x => !x.done))
+  const nothingAfter = (entries, us, at) => (listMode
+    ? us.every((u, k) => k === at || !openUnit(entries, u))
+    : at >= us.length - 1)
+  const unitAfter = (entries, us, at) => (listMode
+    ? [...us.slice(at + 1), ...us.slice(0, Math.max(0, at))].find(u => openUnit(entries, u)) || null
+    : us[at + 1] || null)
+  // The rest a finished set earns: the exercise's own (its ⋯ menu → Rest timer), else the default.
+  const rest = (entries, u) => { const sec = restSecFor(entries, u, S.restSec); if (sec > 0) startRest(sec) }
 
   // A timed set is held, not typed. The work timer records what was actually held — an early
   // finish logs 0:38 of a 0:45 target rather than crediting the full prescription — and then
@@ -429,14 +517,17 @@ function ActiveWorkout() {
   const toggle = (idx, i) => {
     const m = modeAt(idx)
     const cardioEntry = m === 'cardio'
-    const isLastUnit = unitIdx >= units.length - 1
+    // The unit the set belongs to. In Cards that is the one on screen; in the list any exercise
+    // can be ticked, not only the current one.
+    const myUnit = unitOf(units, idx)
+    const isLastUnit = nothingAfter(A.entries, units, units.indexOf(myUnit))
     let askTop = false, autoTop = false, exJustDone = false, workoutDone = false, checked = false
     mutEntry(idx, e => {
       e.sets[i].done = !e.sets[i].done
       checked = e.sets[i].done
       if (e.sets[i].done) {
         beep(S.sound, 1040, 0.12); vibrate(30)
-        const unitDone = unit.every(ui => (ui === idx ? e : A.entries[ui]).sets.every(x => x.done))
+        const unitDone = myUnit.every(ui => (ui === idx ? e : A.entries[ui]).sets.every(x => x.done))
         if (unitDone && isLastUnit) workoutDone = true      // last exercise's last set → done
         // Only loaded reps training has a "working weight" worth confirming — a bodyweight
         // plank has nothing to put in that slider, and neither does a set of push-ups
@@ -477,13 +568,13 @@ function ActiveWorkout() {
       const freshUnits = supersetUnits(fresh.entries)
       const freshUnit = freshUnits.find(u => u.includes(idx))
       const freshUnitIdx = freshUnits.indexOf(freshUnit)
-      const freshLastUnit = freshUnitIdx >= freshUnits.length - 1
+      const freshLastUnit = nothingAfter(fresh.entries, freshUnits, freshUnitIdx)
       const freshUnitDone = freshUnit?.every(ui => fresh.entries[ui].sets.every(x => x.done))
 
       // A re-check of finished work must not navigate or reopen a sheet, but it may still owe
       // you a rest — see restOnRecheck, and the other half of issue #3.
       if (!progress.isNew) {
-        if (restOnRecheck({ timerRunning: !!useUI.getState().timer, unitDone: freshUnitDone, lastUnit: freshLastUnit })) startRest(S.restSec)
+        if (restOnRecheck({ timerRunning: !!useUI.getState().timer, unitDone: freshUnitDone, lastUnit: freshLastUnit })) rest(fresh.entries, freshUnit || [idx])
         return
       }
 
@@ -491,8 +582,15 @@ function ActiveWorkout() {
       // one, and never enter superset navigation. stopRest() first so the rest that belongs
       // after this set replaces the one that was running, rather than stacking on it.
       if (freshUnitDone) stopRest()
+      // In the list the marker follows the work: tick a set anywhere and that exercise is the
+      // current one; finish it and the marker moves on to the next that still has sets left,
+      // scrolled into view. (When the top-weight sheet opens, moving on is its to decide.)
+      if (listMode && freshUnit && !freshUnit.includes(fresh.cur)) update(s => { if (s.active) s.active.cur = idx })
+      if (listMode && freshUnitDone) followCur.current = true
       if (!freshUnit || freshUnit.length <= 1) {
-        if (restAfterSet({ unitDone: freshUnitDone, lastUnit: freshLastUnit })) startRest(S.restSec)
+        if (restAfterSet({ unitDone: freshUnitDone, lastUnit: freshLastUnit })) rest(fresh.entries, freshUnit || [idx])
+        const onward = listMode && freshUnitDone && !askTop ? unitAfter(fresh.entries, freshUnits, freshUnitIdx) : null
+        if (onward) update(s => { if (s.active) s.active.cur = onward[0] })
         return
       }
 
@@ -500,14 +598,14 @@ function ActiveWorkout() {
       if (!step) return
       if (step.unitDone) {
         if (!freshLastUnit) {
-          const nextUnit = freshUnits[freshUnitIdx + 1]
+          const nextUnit = unitAfter(fresh.entries, freshUnits, freshUnitIdx)
           // The top-weight sheet's explicit "Just close" path owns the choice not to advance.
           if (!askTop && nextUnit?.length) update(s => { if (s.active) s.active.cur = nextUnit[0] })
-          startRest(S.restSec)
+          rest(fresh.entries, freshUnit)
         }
       } else {
         if (step.nextIdx != null) update(s => { if (s.active) s.active.cur = step.nextIdx })
-        if (step.roundDone) startRest(S.restSec)
+        if (step.roundDone) rest(fresh.entries, freshUnit)
       }
     }
   }
@@ -539,8 +637,40 @@ function ActiveWorkout() {
     }
   }, [])
 
+  // The header's ⋯ (ported from upstream openGym): what you do to the workout as a whole — add
+  // an exercise, write the session note, switch the layout. Nothing in it throws the session
+  // away. The same two rows also close the page, where you are when you wrap up.
+  const LAYOUT_SUB = { cards: t('One exercise at a time'), list: t('Every exercise on one page'), compact: t('The list, without the animations') }
+  const openLayoutMenu = () => menuSheet({
+    title: t('Layout'),
+    items: WORKOUT_VIEWS.map(v => ({ icon: WORKOUT_VIEW_ICON[v], label: t(WORKOUT_VIEW_LABEL[v]), sub: LAYOUT_SUB[v], on: view === v, onClick: () => update(s => setWorkoutView(s, v)) })),
+  })
+  const openViewMenu = () => menuSheet({
+    title: A.name,
+    items: [
+      { icon: 'plusCircle', label: t('Add exercise'), onClick: addExerciseToActive },
+      { icon: 'note', label: A.note ? t('Edit session note') : t('Add session note'), sub: A.note || undefined, onClick: sessionNoteSheet },
+      { icon: 'layout', label: t('Layout'), sub: t(WORKOUT_VIEW_LABEL[view]), onClick: openLayoutMenu },
+    ],
+  })
+  // One exercise, or one superset as a single card. Unpairing is in each member's ⋯ menu.
+  const unitCard = (u, inList) => (u.length > 1 ? (
+    <div className="ss-card">
+      <div className="ss-hd"><Icon name="link" />{t('Superset · do these back-to-back, rest when done')}</div>
+      {u.map((idx, k) => <div key={idx} ref={el => { exRefs.current[idx] = el }} className="ss-ex" data-exidx={idx}>
+        {k > 0 && <div className="ss-amp">+</div>}
+        <ExerciseBlock entryIdx={idx} compact dense={inList && dense} {...blockProps(idx)} />
+      </div>)}
+    </div>
+  ) : <ExerciseBlock entryIdx={u[0]} dense={inList && dense} {...blockProps(u[0])} />)
+  const unitTitle = (u, ui) => (u.length > 1 ? t('Superset {0} / {1}', ui + 1, units.length) : t('Exercise {0} / {1}', ui + 1, units.length))
+
   return <div className="narrow">
-    <div className="hdr">
+    {/* In the list the whole session scrolls under the header, so it stays pinned (.stick): the
+        name, the clock, the set counter and Finish are what you want in view from the middle of
+        a long stack. Cards never scrolls far. */}
+    <div className={'whdr' + (listMode ? ' stick' : '')}>
+    <div className="hdr whdr-bar">
       {/* Discarding a reopened session puts the finished one back exactly as it was — the
           reopen is undone, not the workout. Only a session that was never saved can be lost
           here, and the wording says which of the two you are about to do. */}
@@ -562,65 +692,61 @@ function ActiveWorkout() {
           stopRest(); nav('/home')
         },
       })}><Icon name="xmark" /></button>
-      <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 600 }}>{A.name}</div><div className="sub"><Elapsed start={elapsedStart(A)} /> · {t('{0} sets', done + '/' + total)}</div></div>
+      <div className="whdr-mid"><div className="whdr-name">{A.name}</div><div className="sub"><Elapsed start={elapsedStart(A)} /> · {t('{0} sets', done + '/' + total)}</div></div>
+      <button className="iconbtn" aria-label={t('Workout options')} title={t('Workout options')} aria-haspopup="dialog" onClick={openViewMenu}><Icon name="more" /></button>
       <button className="iconbtn" style={{ color: 'var(--acc)' }} aria-label={t('Finish')} onClick={finishWorkout}><Icon name="check" /></button>
     </div>
     <div className="wprog"><i style={{ width: (total ? done / total * 100 : 0) + '%' }} /></div>
+    </div>
 
-    {A.entries.length ? <>
-      <div className="muted small" style={{ marginBottom: 6 }}>{isSuperset ? t('Superset {0} / {1}', unitIdx + 1, units.length) : t('Exercise {0} / {1}', unitIdx + 1, units.length)}</div>
-      {isSuperset ? (
-        <div className="ss-card">
-          <div className="ss-hd" style={{ justifyContent: 'space-between' }}>
-            <span className="row" style={{ gap: 5 }}><Icon name="link" />{t('Superset · do these back-to-back, rest when done')}</span>
-            <Button size="xs" variant="ghost" icon="link" title={t('Unpair')} onClick={() => unpairAt(cur)}>{t('Unpair')}</Button>
-          </div>
-          {unit.map((idx, k) => <div key={idx} ref={el => { exRefs.current[idx] = el }} className="ss-ex" data-exidx={idx}>
-            {k > 0 && <div className="ss-amp">+</div>}
-            <ExerciseBlock entryIdx={idx} compact
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onAddWarmup={() => addWarmup(idx)} onRemoveSetAt={i => removeSetAt(idx, i)} onStartTimed={i => startTimed(idx, i)} />
-          </div>)}
-        </div>
-      ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onAddWarmup={() => addWarmup(cur)} onRemoveSetAt={i => removeSetAt(cur, i)} onStartTimed={i => startTimed(cur, i)} onPairPrev={onPairPrev} onPairNext={onPairNext} />
-      )}
-    </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
+    {A.entries.length ? (listMode ? (
+      <div className="workout-list" data-testid="workout-list">
+        {units.map((u, ui) => {
+          const isCur = u.includes(cur)
+          return <section key={u.map(i => A.entries[i].id).join('-') + '#' + u[0]} ref={el => { unitRefs.current[u[0]] = el }}
+            className={'wl-unit' + (isCur ? ' cur' : '')} data-exidx={u[0]}>
+            <div className="wl-hd">
+              <span className="muted small">{unitTitle(u, ui)}</span>
+              {isCur
+                ? <span className="tag acc">{t('Current')}</span>
+                : <button className="chip nocap" onClick={() => update(s => { if (s.active) s.active.cur = u[0] })}>{t('Set current')}</button>}
+            </div>
+            {unitCard(u, true)}
+          </section>
+        })}
+      </div>
+    ) : <>
+      <div className="muted small" style={{ marginBottom: 6 }}>{unitTitle(unit, unitIdx)}</div>
+      {unitCard(unit, false)}
+    </>) : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 
     <div style={{ height: 12 }} />
-    <div className="row">
-      <Button icon="chevronLeft" disabled={unitIdx <= 0} onClick={() => update(s => { s.active.cur = units[unitIdx - 1][0] })}>{t('Prev')}</Button>
-      <Button trailingIcon="chevronRight" disabled={unitIdx < 0 || unitIdx >= units.length - 1} onClick={() => update(s => { s.active.cur = units[unitIdx + 1][0] })}>{t('Next')}</Button>
-    </div>
-    <div style={{ height: 10 }} />
-    <Button onClick={() => exercisePicker(ex => {
-      const routine = S.routines.find(r => r.id === A.routineId)
-      const freestyle = !A.routineId
-      // Freestyle has no routine prescription to apply: show the last target in the config
-      // sheet and carry its completed rows forward. A planned session keeps its existing path.
-      const seed = freestyle ? freestyleConfig(S, { id: ex.id, ...defaultConfig(ex.id) }) : null
-      exConfigSheet(ex, null, cfg => update(s => {
-        const full = { ...cfg, id: ex.id }
-        const plan = freestyle ? null : nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
-        const sets = buildSets(s, full, { step: defaultIncrement(ex.id, s.unit), routineId: s.active.routineId, ...(freestyle ? { preferLast: true } : {}) })
-        const progressed = freestyle ? sets : applyPrescription(sets, plan, defaultIncrement(ex.id, s.unit))
-        s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets: applyIntensifierPlan(progressed, full) })
-        s.active.cur = s.active.entries.length - 1
-      }), null, routine, seed)
-    })} icon="plus">{t('Add exercise')}</Button>
-    {A.entries.length > 0 && <>
-      <div style={{ height: 6 }} />
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <Button size="sm" icon="minus" style={{ color: 'var(--red)' }} disabled={!!work} onClick={removeExerciseSheet}>{t('Remove exercise')}</Button>
+    {!listMode && <>
+      <div className="row">
+        <Button icon="chevronLeft" disabled={unitIdx <= 0} onClick={() => update(s => { s.active.cur = units[unitIdx - 1][0] })}>{t('Prev')}</Button>
+        <Button trailingIcon="chevronRight" disabled={unitIdx < 0 || unitIdx >= units.length - 1} onClick={() => update(s => { s.active.cur = units[unitIdx + 1][0] })}>{t('Next')}</Button>
       </div>
+      <div style={{ height: 10 }} />
     </>}
-    <div style={{ height: 10 }} />
-    {/* Wrapping up is when you know how the session went, so the note sits with the finish
-        button rather than somewhere in the header. */}
-    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
-      <Button size="sm" icon="pencil" variant={A.note ? 'tinted' : undefined} onClick={sessionNoteSheet}>
-        {A.note ? t('Edit session note') : t('Add session note')}
-      </Button>
+    {/* The end of the workout: adding an exercise and the session's note are one inset list of
+        two rows, so the finish button under them is the one thing that stands out. Wrapping up
+        is when you know how the session went, so the note sits here with the finish as well as
+        in the header's ⋯. Removing an exercise is not here: it is in that exercise's own menu. */}
+    <div className="sect-b wk-end">
+      <button type="button" className="lrow tap wk-end-row acc" onClick={addExerciseToActive}>
+        <Icon name="plusCircle" className="wk-end-i" />
+        <span className="lrow-m"><span className="lrow-t">{t('Add exercise')}</span></span>
+      </button>
+      <button type="button" className={'lrow tap wk-end-row' + (A.note ? ' has-note' : '')} onClick={sessionNoteSheet}>
+        <Icon name="note" className="wk-end-i" />
+        <span className="lrow-m">
+          <span className="lrow-t">{A.note ? t('Edit session note') : t('Add session note')}</span>
+          {A.note && <span className="lrow-s wk-end-note">{A.note}</span>}
+        </span>
+        <Icon name="chevronRight" className="lrow-c" />
+      </button>
     </div>
+    <div style={{ height: 16 }} />
     {(() => {
       const exDone = A.entries.filter(e => e.sets.length && e.sets.every(s => s.done)).length
       const allDone = A.entries.length > 0 && exDone === A.entries.length
