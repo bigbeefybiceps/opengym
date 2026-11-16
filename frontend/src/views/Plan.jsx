@@ -2,11 +2,11 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { DAYN, uid, exCount, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { dayAssignSheet, loadStarterPlan, planToolsSheet, planSetupSheet, jumpBlockSheet } from '../sheets.jsx'
+import { dayAssignSheet, loadStarterPlan, planToolsSheet, planSetupSheet, jumpBlockSheet, deloadNowSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf, DEFAULT_GLYPH } from '../lib/glyphs.js'
-import { planStatus, blockName, shiftWeeks, exNow } from '../lib/block-plan.js'
+import { planStatus, blockName, shiftWeeks, exNow, cancelDeload, skipEasyWeek } from '../lib/block-plan.js'
 import { cleanCardio, cardioIcon } from '../lib/cardio.js'
 
 export default function Plan() {
@@ -64,6 +64,25 @@ export default function Plan() {
           <button className="iconbtn" aria-label={t('Forward one week')} onClick={() => update(s => { shiftWeeks(s, 1) })}><Icon name="plus" /></button>
         </div>
         {multi && <Button size="sm" variant="tinted" icon="bolt" onClick={jumpBlockSheet}>{t('Jump to block')}</Button>}
+      </div>
+      {/* One action about this week's lighter status, whichever applies: take a deload now,
+          call yours off, or skip the one the block scheduled. */}
+      <div className="row between" style={{ marginTop: 10 }}>
+        <span className="small muted" style={{ minWidth: 0 }}>
+          {pst.extra ? t('{0} — your plan is paused this week', pst.easyName || t('Deload'))
+            : pst.easy ? t('{0} is scheduled this week', pst.easyName || t('Lighter week'))
+            : t('Need a lighter week?')}
+        </span>
+        {pst.extra
+          ? <Button size="sm" variant="ghost" onClick={() => update(s => { cancelDeload(s) })}>{t('Cancel deload')}</Button>
+          : pst.easy
+            ? <Button size="sm" variant="ghost" onClick={() => confirmSheet({
+                title: t('Skip {0}?', pst.easyName || t('Lighter week')),
+                message: t('This week becomes the next week of the block, trained normally. The back-one-week button undoes it.'),
+                confirmText: t('Skip'),
+                onConfirm: () => update(s => { skipEasyWeek(s) }),
+              })}>{t('Skip {0}', pst.easyName || t('Lighter week'))}</Button>
+            : <Button size="sm" variant="ghost" onClick={deloadNowSheet}>{t('Deload this week')}</Button>}
       </div>
     </div>}
     <div className="cols"><div>

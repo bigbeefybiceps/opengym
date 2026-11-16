@@ -4,7 +4,12 @@
 //
 // Shape (S.plan):
 //   { name, start, after: 'repeat' | 'stay',
-//     blocks: [{ id, name, weeks, easy: null | { at: 'first' | 'last', name, pct } }] }
+//     blocks: [{ id, name, weeks, easy: null | { at: 'first' | 'last', name, pct } }],
+//     deloads: [{ d, name, pct }] }
+//
+// `deloads` are lighter weeks taken on demand rather than on schedule: `d` is the first day of
+// the plan week it was called in. Such a week is INSERTED — the plan pauses for it and the
+// block picks up afterwards at the week it was on, so a six-week block still gets its six weeks.
 //
 // A block is a complete prescription, not a flag. Each routine keeps one exercise list per
 // block: `routine.ex` is the base list and `routine.alt[blockId]` is a block's own list once
@@ -45,7 +50,13 @@ export function planOf(S) {
       : null,
   }))
   if (!blocks.length) blocks.push({ id: 'b1', name: '', weeks: 6, easy: null })
-  return { name: p.name || '', start: p.start || null, after: p.after === 'stay' ? 'stay' : 'repeat', blocks }
+  const deloads = (Array.isArray(p.deloads) ? p.deloads : [])
+    .filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.d))
+    .map(x => ({ d: x.d, name: x.name || '', pct: cleanPct(x.pct) }))
+  return {
+    name: p.name || '', start: p.start || null, after: p.after === 'stay' ? 'stay' : 'repeat', blocks,
+    ...(deloads.length ? { deloads } : {}),
+  }
 }
 
 export const blockName = (b, i) => (b && b.name) || ('Block ' + (i + 1))
@@ -67,21 +78,33 @@ export function programStartOf(S) {
  * lighter week (an intro or a deload) when this is that week, with its `easyName` and `pct`.
  * `cycle` counts completed runs. A plan that stays on its last block keeps counting weeks past
  * the end rather than wrapping.
+ *
+ * A deload taken on demand is a week outside the count: every later week reads one lower than
+ * the calendar says, and the deload week itself reports the position the plan paused at, with
+ * `extra` set so the screen can tell it from a scheduled lighter week.
  */
 export function planStatus(S, iso = todayISO()) {
   const plan = planOf(S)
   const total = plan.blocks.reduce((n, b) => n + b.weeks, 0)
   const start = programStartOf(S)
   const days = start ? Math.max(0, Math.floor((at(iso) - at(start)) / dayMs)) : 0
-  const elapsed = Math.floor(days / 7)
+  const calWeeks = Math.floor(days / 7)
+  const weekStart = start ? isoAdd(start, calWeeks * 7) : iso
+  const weekEnd = isoAdd(weekStart, 7)
+  const taken = (plan.deloads || []).filter(x => start && x.d >= start)
+  const extra = taken.find(x => x.d >= weekStart && x.d < weekEnd) || null
+  const elapsed = calWeeks - taken.filter(x => x.d < weekStart).length
   const over = plan.after === 'stay' && elapsed >= total
   const inRun = over ? total - 1 : elapsed % total
   let i = 0, before = 0
   while (i < plan.blocks.length - 1 && inRun >= before + plan.blocks[i].weeks) { before += plan.blocks[i].weeks; i++ }
   const block = plan.blocks[i]
   const weekInBlock = inRun - before + 1
-  const lighter = !over && block.easy &&
+  const scheduled = !over && block.easy &&
     ((block.easy.at === 'first' && weekInBlock === 1) || (block.easy.at === 'last' && weekInBlock === block.weeks))
+  // The week the plan resumes on may itself be a scheduled lighter one; the deload you asked
+  // for is the one being trained, so its name and percentage win.
+  const lighter = extra ? { name: extra.name || 'Deload', pct: extra.pct } : scheduled ? block.easy : null
   return {
     plan, total, block, blockIndex: i,
     week: over ? elapsed + 1 : inRun + 1,
@@ -89,8 +112,9 @@ export function planStatus(S, iso = todayISO()) {
     cycle: plan.after === 'stay' ? 0 : Math.floor(elapsed / total),
     elapsed, over,
     easy: !!lighter,
-    easyName: lighter ? (block.easy.name || '') : null,
-    pct: lighter ? block.easy.pct : 100,
+    easyName: lighter ? (lighter.name || '') : null,
+    pct: lighter ? lighter.pct : 100,
+    extra: !!extra, weekStart,
   }
 }
 
@@ -118,6 +142,39 @@ export function shiftWeeks(s, n, today = todayISO()) {
   const st = planStatus(s, today)
   const by = Math.max(-st.elapsed, Math.round(n) || 0)      // not before week 1
   s.plan.start = isoAdd(s.plan.start, -7 * by)
+}
+/**
+ * Make this week a deload, whatever the block had planned for it. The week is inserted: the
+ * plan's count stops for it and carries on next week from the same place. Sessions already
+ * finished this week keep what they were — a session records its own week when it is trained.
+ */
+export function startDeload(s, { name, pct } = {}, today = todayISO()) {
+  anchor(s, today)
+  const st = planStatus(s, today)
+  if (st.extra) return false
+  s.plan.deloads = [...(s.plan.deloads || []), { d: st.weekStart, name: String(name || '').slice(0, 24), pct: cleanPct(pct) }]
+    .sort((a, b) => (a.d < b.d ? -1 : 1))
+  return true
+}
+/** Call this week's on-demand deload off again; the plan counts the week as a normal one. */
+export function cancelDeload(s, today = todayISO()) {
+  const st = planStatus(s, today)
+  if (!st.extra || !s.plan) return false
+  const end = isoAdd(st.weekStart, 7)
+  s.plan.deloads = (s.plan.deloads || []).filter(x => !(x.d >= st.weekStart && x.d < end))
+  if (!s.plan.deloads.length) delete s.plan.deloads
+  return true
+}
+/**
+ * Skip the block's scheduled lighter week: this week becomes the one after it. It is a step
+ * forward like any other (the "back one week" button undoes it), offered by name because
+ * "skip the intro" is what you mean, not "pretend a week has passed".
+ */
+export function skipEasyWeek(s, today = todayISO()) {
+  const st = planStatus(s, today)
+  if (!st.easy || st.extra) return false
+  shiftWeeks(s, 1, today)
+  return true
 }
 /** Put today in the first week of `blockId`, in the current run. */
 export function jumpToBlock(s, blockId, today = todayISO()) {

@@ -23,7 +23,7 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, isDou
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout, resumeWorkout, activeMs } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
-import { planOf, planStatus, programStartOf, weekCfg, weekStamp, exOf, exNow, listsOf, blockName, effortScale, shiftWeeks, jumpToBlock, addBlock, removeBlock, cleanPct, MAX_BLOCKS, MAX_BLOCK_WEEKS } from './lib/block-plan.js'
+import { planOf, planStatus, programStartOf, weekCfg, weekStamp, exOf, exNow, listsOf, blockName, effortScale, shiftWeeks, jumpToBlock, startDeload, addBlock, removeBlock, cleanPct, MAX_BLOCKS, MAX_BLOCK_WEEKS } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
 import { homeLayout, moveHomeSection, setHomeSectionHidden, resetHomeLayout } from './lib/home-layout.js'
 import { MODALITIES, CARDIO_NOTE_MAX, cleanCardio, cardioPlanFor, cardioLine, cardioIcon } from './lib/cardio.js'
@@ -1351,6 +1351,25 @@ function BlockSheet({ blockId, close }) {
   </>
 }
 export const blockSheet = blockId => ui().openSheet(close => <BlockSheet blockId={blockId} close={close} />)
+
+/** Take a deload this week, on demand. The one choice is how much lighter to start. */
+function DeloadNow({ close }) {
+  const pst = planStatus(S(), todayISO())
+  // A block that has a scheduled lighter week already says what "lighter" means to you.
+  const [pct, setPct] = useState(pst.block.easy ? pst.block.easy.pct : 90)
+  return <>
+    <h3>{t('Deload this week')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>
+      {t('The rest of this week is trained as a lighter week: each exercise uses its lighter-week effort target and sets. Your plan pauses for it — next week you are back on {0}, week {1}. Sessions already finished this week stay as they are.', blockName(pst.block, pst.blockIndex), pst.weekInBlock)}
+    </div>
+    <div className="card" style={{ marginBottom: 12 }}>
+      <Stepper label={t('Starting weight (% of last week)')} value={pct} step={5} decimal={false} onChange={v => setPct(cleanPct(v))} />
+    </div>
+    <Button variant="primary" onClick={() => { update(s => { startDeload(s, { name: t('Deload'), pct }) }); close(); toast(t('Deload week started')) }}>{t('Start deload')}</Button>
+    <div style={{ height: 8 }} />
+  </>
+}
+export const deloadNowSheet = () => ui().openSheet(close => <DeloadNow close={close} />)
 
 /** Move the plan's position to the start of a block. */
 export const jumpBlockSheet = () => ui().openSheet(close => {

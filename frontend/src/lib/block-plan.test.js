@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   planOf, planStatus, programStartOf, weekStamp, isEasySession, shiftWeeks, jumpToBlock,
   exOf, ownList, hasOwnList, addBlock, removeBlock, copyBlockList, applyToAllBlocks,
-  differsFromFirst, effortScale, weekCfg, migratePlan,
+  differsFromFirst, effortScale, weekCfg, migratePlan, startDeload, cancelDeload, skipEasyWeek,
 } from './block-plan.js'
 
 // Two six-week blocks, the first week of each a lighter one — the plan this was built for.
@@ -284,5 +284,65 @@ describe('migrating a state from before plans', () => {
     migratePlan(s)
     expect(s.active.entries[0].target).toEqual({ id: 'A', tech: 'Myo-reps' })
     expect(s.active.wk.b).toBe('b2')
+  })
+})
+
+describe('a deload taken on demand', () => {
+  // 2026-08-24 is the third week: Block 1, week 3 of 6, a normal week.
+  it('makes this week a lighter one without spending a week of the block', () => {
+    const s = st()
+    expect(startDeload(s, { name: 'Deload', pct: 85 }, '2026-08-26')).toBe(true)
+    expect(s.plan.deloads).toEqual([{ d: '2026-08-24', name: 'Deload', pct: 85 }])
+    expect(at('2026-08-24', s)).toMatchObject({ week: 3, weekInBlock: 3, easy: true, extra: true, easyName: 'Deload', pct: 85 })
+    expect(at('2026-08-30', s)).toMatchObject({ easy: true, extra: true })
+    // the week after is week 3 again, trained normally
+    expect(at('2026-08-31', s)).toMatchObject({ week: 3, weekInBlock: 3, easy: false, extra: false })
+    // and the earlier weeks are where they always were
+    expect(at('2026-08-17', s)).toMatchObject({ week: 2, easy: false })
+  })
+  it('pushes the next block, and its scheduled lighter week, a week later', () => {
+    const s = st(); startDeload(s, { pct: 90 }, '2026-08-24')
+    expect(at('2026-09-21', s)).toMatchObject({ blockIndex: 0, weekInBlock: 6, easy: false })
+    expect(at('2026-09-28', s)).toMatchObject({ blockIndex: 1, weekInBlock: 1, easy: true, extra: false, easyName: 'Deload' })
+  })
+  it('is stamped on the session like any lighter week', () => {
+    const s = st(); startDeload(s, { name: '', pct: 90 }, '2026-08-24')
+    expect(isEasySession({ wk: weekStamp(at('2026-08-25', s)) })).toBe(true)
+  })
+  it('cannot be stacked on the same week, and can be called off', () => {
+    const s = st(); startDeload(s, { pct: 90 }, '2026-08-24')
+    expect(startDeload(s, { pct: 80 }, '2026-08-27')).toBe(false)
+    expect(cancelDeload(s, '2026-08-28')).toBe(true)
+    expect(s.plan.deloads).toBeUndefined()
+    expect(at('2026-08-24', s)).toMatchObject({ week: 3, easy: false, extra: false })
+    expect(at('2026-08-31', s)).toMatchObject({ week: 4 })
+    expect(cancelDeload(s, '2026-08-28')).toBe(false)
+  })
+  it('survives planOf, and garbage does not', () => {
+    const s = st(); s.plan.deloads = [{ d: '2026-08-24', pct: 500 }, { d: 'soon' }, null]
+    expect(planOf(s).deloads).toEqual([{ d: '2026-08-24', name: '', pct: 100 }])
+    expect(planOf(st()).deloads).toBeUndefined()
+  })
+  it('still counts right after the week buttons moved the plan', () => {
+    const s = st(); startDeload(s, { pct: 90 }, '2026-08-24')
+    shiftWeeks(s, 1, '2026-08-31')            // forward a week: week 3 -> 4
+    expect(at('2026-08-31', s)).toMatchObject({ week: 4, extra: false })
+    expect(at('2026-08-24', s)).toMatchObject({ extra: true })
+  })
+})
+
+describe('skipping a scheduled lighter week', () => {
+  it('moves on to the week after it', () => {
+    const s = st()
+    expect(at('2026-09-21', s)).toMatchObject({ blockIndex: 1, weekInBlock: 1, easy: true })
+    expect(skipEasyWeek(s, '2026-09-21')).toBe(true)
+    expect(at('2026-09-21', s)).toMatchObject({ blockIndex: 1, weekInBlock: 2, easy: false })
+  })
+  it('does nothing in a normal week or in a deload you called yourself', () => {
+    const s = st()
+    expect(skipEasyWeek(s, '2026-08-24')).toBe(false)
+    startDeload(s, { pct: 90 }, '2026-08-24')
+    expect(skipEasyWeek(s, '2026-08-24')).toBe(false)
+    expect(s.plan.start).toBe('2026-08-10')
   })
 })
