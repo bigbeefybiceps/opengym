@@ -171,6 +171,24 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onField, onAddSet, 
       <button aria-label="Increase" onClick={() => onChange(Math.max(0, Math.round(((value || 0) + step) * 100) / 100))}><Icon name="plus" /></button>
     </div>
   )
+  // The set number opens the set's own menu (as upstream openGym does it): a drop or a burst on
+  // top of this set, and removing it. These used to sit as "+ Drop" / "+ Burst" chips under
+  // every row and an × on every warm-up — two to three controls per set for something done a
+  // few times a week. The drops and bursts themselves stay on the page under their set, since
+  // those are numbers you edit.
+  const openSetMenu = (s, i, warm, num) => menuSheet({
+    title: warm ? t('Warm-up {0}', num) : t('Set {0}', num),
+    subtitle: setLabel(entry.id, s, entry.target),
+    sections: [
+      { items: [
+        !warm && mode === 'reps' && !isRestPauseSet(s) && { icon: 'arrowDown', label: t('Drop set'), sub: dropsOf(s).length ? t('Add another drop') : t('Lighter weight straight after, no rest'), onClick: () => addDropRow(i) },
+        !warm && mode === 'reps' && !isDropSet(s) && { icon: 'bolt', label: t('Rest-pause burst'), sub: clustersOf(s).length ? t('Add another burst') : t('A few more reps after a short pause'), onClick: () => addBurstRow(i) },
+      ] },
+      { items: [
+        { icon: 'trash', label: t('Remove this set'), danger: true, disabled: entry.sets.length <= 1 || (timed && !!working), onClick: () => onRemoveSetAt(i) },
+      ] },
+    ],
+  })
   // Everything about this exercise that is not a set you are logging right now lives behind one
   // button (ported from upstream openGym). What used to be a row of buttons in the header, a
   // "make superset" strip under it, a warm-up button under the sets and a remove button below
@@ -293,7 +311,9 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onField, onAddSet, 
           {isFirstWarmup && <div className="setph">{t('Warm-up')}</div>}
           {!warm && warmBefore && <div className="setsep" />}
           <div className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
-            <div className="n">{phaseNum}</div>
+            {/* The set number is the set's own menu: drop, burst, remove. */}
+            <button type="button" className="n" aria-haspopup="dialog" aria-label={warm ? t('Warm-up {0}', phaseNum) : t('Set {0}', phaseNum)}
+              onClick={() => openSetMenu(s, i, warm, phaseNum)}>{phaseNum}</button>
             {cell(s, i, col1, 'w')}
             {col2 && cell(s, i, col2, 'r')}
             {col3 && cell(s, i, col3, 'eff')}
@@ -301,8 +321,6 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onField, onAddSet, 
                 set off itself. The checkbox stays for anyone who timed it on their own watch. */}
             {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
               onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
-            {warm && <button className="iconbtn" style={{ fontSize: 13 }} aria-label={t('Remove set')}
-              disabled={entry.sets.length <= 1} onClick={() => onRemoveSetAt(i)}><Icon name="xmark" /></button>}
             <Check checked={s.done} onChange={() => onToggle(i)} />
           </div>
           {/* Drop-sets and rest-pause bursts extend this same row — no long rest, no new set.
@@ -325,10 +343,6 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onField, onAddSet, 
                 <button className="iconbtn" aria-label={t('Remove burst')} onClick={() => removeCluster(i, ci)}><Icon name="xmark" /></button>
               </div>
             ))}
-            <div className="setextra">
-              {!isRestPauseSet(s) && <button className="chip add" onClick={() => addDropRow(i)}><Icon name="arrowDown" />{t('+ Drop')}</button>}
-              {!isDropSet(s) && <button className="chip add" onClick={() => addBurstRow(i)}><Icon name="bolt" />{t('+ Burst')}</button>}
-            </div>
           </>}
         </div>
       })}

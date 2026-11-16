@@ -631,6 +631,7 @@ h4.sec{
 .setph::after{content:'';flex:1;height:1px;background:var(--sep)}
 .setsep{height:1px;background:var(--sep);margin:9px 0}
 .setrow .n{
+  border:0;padding:0;cursor:pointer;position:relative;
   width:24px;height:24px;border-radius:50%;background:var(--surface-2);color:var(--label-2);
   display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex:none;
   transition:background var(--fast),color var(--fast);
@@ -1162,3 +1163,8 @@ h4.sec{
 /* a long note under a menu row (the session note, an exercise's) stays two lines */
 .menu-list .menu-item .ss{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 .menu-list .menu-more .ss{display:block}
+
+/* The set number is a button (its menu: drop, burst, remove): a wider invisible target than the
+   24px dot, so it is hittable mid-set without moving the row's layout. */
+.setrow .n::before{content:'';position:absolute;inset:-10px -6px}
+.setrow .n:active{background:var(--surface-3)}

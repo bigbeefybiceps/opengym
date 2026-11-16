@@ -46,6 +46,11 @@ const maybeRestNotification = async () => {
   }
 }
 
+// How late a rest may finish and still alert as though on time. A tick runs every second, so
+// anything later than a few seconds means the page was suspended and is only now waking.
+export const REST_LATE_MS = 5000
+const fmtAgo = ms => { const s = Math.round(ms / 1000); return s < 60 ? s + 's' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') }
+
 let toastTm = null
 let timerInt = null
 let timerTick = null
@@ -90,6 +95,12 @@ export const useUI = create((set, get) => ({
       if (left === tm.left) return
       const snd = useStore.getState().S.sound
       if (left <= 0) {
+        // Ran out while the app was suspended (phone locked, app in the background): iOS stops
+        // a web app's timers there, so this tick only runs when you come back — often minutes
+        // late. Alerting now would push a "rest over" notification at the moment you open the
+        // app, long after the rest ended. Say so quietly in the app instead.
+        const late = Date.now() - tm.endsAt
+        if (late > REST_LATE_MS) { get().stopRest(); get().toast(t('Rest ended {0} ago', fmtAgo(late))); return }
         beep(snd, 880, 0.15); beep(snd, 880, 0.15, 0.25); beep(snd, 1320, 0.4, 0.5)
         vibrate([200, 100, 200]); maybeRestNotification(); get().toast(t('Rest over — next set!')); get().stopRest(); return
       }
