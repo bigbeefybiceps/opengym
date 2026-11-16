@@ -5,7 +5,8 @@ import { EXIDX } from '../lib/exercises.js'
 import { lastBW, streakWeeks, setLabel, modeOf, effortOf, metricModeForEntry, metricRowsForEntry, bestWeightForEntry } from '../lib/history.js'
 import { fmtNum, fmtDate, fmtVol, todayISO, weekKey } from '../lib/format.js'
 import { t, exerciseNameFor, getLang } from '../lib/i18n.js'
-import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor, MonthCalendar } from '../sheets.jsx'
+import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor, MonthCalendar, cardioLogSheet } from '../sheets.jsx'
+import { cardioWeek, cardioDaysPlanned, cardioLine, cardioIcon } from '../lib/cardio.js'
 import LineChart from '../components/LineChart.jsx'
 import Heatmap from '../components/Heatmap.jsx'
 import Icon from '../components/Icon.jsx'
@@ -400,6 +401,30 @@ export default function Stats() {
       <div className="tile"><div className="l"><Icon name="scale" />{t('Weight 30d')}</div><div className="v" style={{ fontSize: 22, color: bwDelta30 === null ? 'inherit' : bwDeltaColor(bwDelta30, (lastBW(S) || {}).w || 0) }}>{bwDelta30 === null ? '—' : (bwDelta30 > 0 ? '+' : '') + fmtNum(bwDelta30) + ' ' + S.unit}</div></div>
 
     </div>
+
+    {/* Cardio keeps its own log, apart from the lifting sessions above, so it gets its own
+        place to be read back: the week so far against what the plan asks, and the last few
+        entries, each a tap away from being corrected. Logging from here covers the day that
+        was not planned and the one you forgot. */}
+    {(() => {
+      const wk = cardioWeek(S, todayISO())
+      const planned = cardioDaysPlanned(S)
+      const recent = [...(S.cardioLog || [])].reverse().slice(0, 5)
+      if (!planned && !recent.length) return null
+      return <div className="card">
+        <div className="row between" style={{ marginBottom: 4 }}>
+          <h2 style={{ margin: 0 }}>{t('Cardio')}</h2>
+          <Button size="sm" variant="tinted" icon="plus" onClick={() => cardioLogSheet()}>{t('Log')}</Button>
+        </div>
+        <div className="muted small" style={{ marginBottom: recent.length ? 10 : 0 }}>
+          {t('This week: {0} min', wk.min)}{planned ? ' · ' + t('{0} of {1} planned days', Math.min(wk.sessions, planned), planned) : wk.sessions ? ' · ' + t(wk.sessions === 1 ? '{0} session' : '{0} sessions', wk.sessions) : ''}
+        </div>
+        {recent.length > 0 && <div className="list">{recent.map(c => <div key={c.id} className="item" onClick={() => cardioLogSheet({ entry: c })}>
+          <span className="lrow-i" style={{ background: 'var(--teal)' }}><Icon name={cardioIcon(c.mod)} /></span>
+          <div className="grow"><div className="tt">{c.mod}</div><div className="ss">{[fmtDate(c.d, true), cardioLine({ ...c, mod: '' }, S.unit === 'lb' ? 'mi' : 'km')].filter(Boolean).join(' · ')}</div></div>
+          <Icon name="chevronRight" className="chev" /></div>)}</div>}
+      </div>
+    })()}
 
     <div className="card">
       <h2>{t('Activity — last 12 months')} <span className="dim" style={{ textTransform: 'none', letterSpacing: 0 }}>· {t('by time trained')}</span></h2>

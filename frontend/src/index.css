@@ -1052,3 +1052,11 @@ h4.sec{
 .planlbl>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .planlbl>span.on{color:var(--acc);font-weight:500}
 .input.pc-date{width:auto;flex:none;padding:8px 10px;font-size:15px;color:var(--label);background:var(--surface-2)}
+
+/* cardio markers: a second, teal dot under a day it was done on (week strip), and a corner
+   dot on the month grid. Teal throughout, so it is never mistaken for the lifting marker. */
+.wday .dots{display:flex;gap:3px;justify-content:center;align-items:center;min-height:5px}
+.wday .dots .dot{margin:0}
+.wday .dot.cardio{background:var(--teal)}
+.cal-d{position:relative}
+.cal-d.cardio::after{content:'';position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--teal)}

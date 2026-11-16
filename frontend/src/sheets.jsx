@@ -25,6 +25,7 @@ import { buildCompletedWorkout, resumeWorkout, activeMs } from './lib/finish-wor
 import { isWarmupRow } from './lib/workout-model.js'
 import { planOf, planStatus, programStartOf, weekCfg, weekStamp, exOf, exNow, listsOf, blockName, effortScale, shiftWeeks, jumpToBlock, addBlock, removeBlock, cleanPct, MAX_BLOCKS, MAX_BLOCK_WEEKS } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
+import { MODALITIES, CARDIO_NOTE_MAX, cleanCardio, cardioPlanFor, cardioLine, cardioIcon } from './lib/cardio.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -1019,8 +1020,15 @@ export const dayOverrideSheet = iso => ui().openSheet(close => <DayOverride iso=
 function DayAssign({ day, close }) {
   const st = useStore(s => s.S)
   const set = v => { update(s => { if (v) s.week[day] = v; else delete s.week[day] }); close() }
+  const cardio = cleanCardio((st.cardio || {})[day])
   return <>
     <h3>{t(DAYN[day])}</h3>
+    {/* Cardio is planned for the day, not chosen instead of a routine, so it is a row of its
+        own above the list rather than one more option in it. */}
+    <div className="sect-b" style={{ marginBottom: 12 }}>
+      <Row icon="figureRun" iconTint="var(--teal)" title={t('Cardio')} subtitle={cardio ? cardioLine(cardio) : t('None planned')}
+        accessory="chevron" onClick={() => cardioPlanSheet(day)} />
+    </div>
     <div className="list">
       <div className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest day')}</div></div>{!st.week[day] && <Icon name="check" className="accent" />}</div>
       {st.routines.map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
@@ -1146,13 +1154,14 @@ export function MonthCalendar({ start, close }) {
   const monthWs = st.workouts.filter(w => w.d.startsWith(y + '-' + String(mo + 1).padStart(2, '0')))
   const monthVol = monthWs.reduce((a, w) => a + (w.vol || 0), 0)
   const monthMs = monthWs.reduce((a, w) => a + Math.max(0, (w.end || w.start) - w.start), 0)
+  const cardioDays = new Set((st.cardioLog || []).map(c => c.d))
   const cells = []
   for (let i = 0; i < startOffset; i++) cells.push(<div key={'e' + i} />)
   for (let d = 1; d <= daysIn; d++) {
     const iso = y + '-' + String(mo + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
     const ws = byDay[iso], effId = effectiveRoutineId(st, iso), ovr = st.dayPlan[iso] !== undefined
     const dotCls = ws ? 'done' : ovr && effId ? 'ovr' : effId ? 'plan' : ''
-    cells.push(<button key={d} className={'cal-d' + (ws ? ' has' : '') + (iso === todayISO() ? ' today' : '')} onClick={() => {
+    cells.push(<button key={d} className={'cal-d' + (ws ? ' has' : '') + (iso === todayISO() ? ' today' : '') + (cardioDays.has(iso) ? ' cardio' : '')} onClick={() => {
       // An empty day that has already happened can be back-filled (a session logged on
       // paper, a forgotten phone) — a future one can only be planned.
       if (!ws) { done(); (iso <= todayISO() ? dayLogSheet(iso) : dayOverrideSheet(iso)); return }
@@ -1361,6 +1370,89 @@ export const jumpBlockSheet = () => ui().openSheet(close => {
     <div style={{ height: 8 }} />
   </>
 })
+
+
+/* ============================ cardio ============================
+   Two small sheets over lib/cardio.js: what a weekday plans, and what was done on a date. */
+// The picker and the free-text field are one control: a preset fills the field, and anything
+// typed is a modality in its own right — nobody's gym has exactly the list in the code.
+function ModalityPicker({ value, onChange }) {
+  return <>
+    <div className="chips" style={{ flexWrap: 'wrap', overflow: 'visible', marginBottom: 10 }}>
+      {MODALITIES.map(m => <button key={m} className={'chip nocap' + (value === m ? ' on' : '')} onClick={() => onChange(m)}>{t(m)}</button>)}
+    </div>
+    <TextField placeholder={t('Or type your own')} value={value} maxLength={40} onChange={e => onChange(e.target.value)} />
+  </>
+}
+
+function CardioPlan({ day, close }) {
+  const st = useStore(s => s.S)
+  const cur = (st.cardio || {})[day]
+  const [c, setC] = useState({ mod: cur?.mod || '', min: cur?.min || 20, note: cur?.note || '' })
+  const save = () => {
+    const clean = cleanCardio(c)
+    if (!clean) { toast(t('Pick a type of cardio first')); return }
+    update(s => { s.cardio = s.cardio || {}; s.cardio[day] = clean })
+    close()
+  }
+  return <>
+    <h3 className="row" style={{ gap: 8 }}><Icon name="figureRun" style={{ color: 'var(--teal)' }} />{t('Cardio on {0}', t(DAYN[day]))}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Planned for the day itself, on top of whatever you lift — or on a rest day.')}</div>
+    <ModalityPicker value={c.mod} onChange={v => setC(x => ({ ...x, mod: v }))} />
+    <div style={{ height: 12 }} />
+    <div className="row cfgrow" style={{ marginBottom: 12 }}>
+      <Stepper label={t('Minutes')} value={c.min} step={5} decimal={false} onChange={v => setC(x => ({ ...x, min: v }))} />
+    </div>
+    <TextField placeholder={t('Intensity or note — easy pace, zone 2, intervals…')} value={c.note} maxLength={CARDIO_NOTE_MAX}
+      onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
+    <div style={{ height: 16 }} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+    {cur && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { update(s => { if (s.cardio) delete s.cardio[day] }); close() }}>{t('Remove cardio from {0}', t(DAYN[day]))}</Button></>}
+  </>
+}
+export const cardioPlanSheet = day => ui().openSheet(close => <CardioPlan day={day} close={close} />)
+
+// `entry` edits one that is already logged; otherwise this logs a new one for `iso`,
+// starting from what the plan asked for that day so the usual case is a single tap on Save.
+function CardioLog({ iso, entry, close }) {
+  const st = useStore(s => s.S)
+  const planned = cardioPlanFor(st, iso || todayISO())
+  const [d, setD] = useState(entry?.d || iso || todayISO())
+  const [c, setC] = useState({ mod: entry?.mod || planned?.mod || '', min: entry?.min || planned?.min || 20, dist: entry?.dist || 0, note: entry?.note || '' })
+  const save = () => {
+    const clean = cleanCardio(c)
+    if (!clean) { toast(t('Pick a type of cardio first')); return }
+    update(s => {
+      s.cardioLog = s.cardioLog || []
+      const hit = entry && s.cardioLog.find(x => x.id === entry.id)
+      if (hit) { Object.keys(hit).forEach(k => { if (k !== 'id') delete hit[k] }); Object.assign(hit, { d }, clean) }
+      else s.cardioLog.push({ id: uid(), d, ...clean })
+      s.cardioLog.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0))
+    })
+    close()
+    toast(t('Cardio logged'))
+  }
+  return <>
+    <h3 className="row" style={{ gap: 8 }}><Icon name={cardioIcon(c.mod)} style={{ color: 'var(--teal)' }} />{entry ? t('Edit cardio') : t('Log cardio')}</h3>
+    {planned && !entry && <div className="muted small" style={{ marginBottom: 12 }}>{t('Planned: {0}', cardioLine(planned))}</div>}
+    <ModalityPicker value={c.mod} onChange={v => setC(x => ({ ...x, mod: v }))} />
+    <div style={{ height: 12 }} />
+    <div className="row cfgrow" style={{ marginBottom: 12 }}>
+      <Stepper label={t('Minutes')} value={c.min} step={1} decimal={false} onChange={v => setC(x => ({ ...x, min: v }))} />
+      <Stepper label={t('Distance ({0})', st.unit === 'lb' ? 'mi' : 'km')} value={c.dist} step={0.5} onChange={v => setC(x => ({ ...x, dist: v }))} />
+    </div>
+    <TextField placeholder={t('Note — how it went, incline, level…')} value={c.note} maxLength={CARDIO_NOTE_MAX}
+      onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
+    <div className="row between" style={{ margin: '12px 0 16px' }}>
+      <span className="small dim">{t('Date')}</span>
+      <input type="date" className="input pc-date" value={d} max={todayISO()}
+        onChange={e => { const v = e.target.value; if (/^\d{4}-\d{2}-\d{2}$/.test(v) && v <= todayISO()) setD(v) }} />
+    </div>
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+    {entry && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { update(s => { s.cardioLog = (s.cardioLog || []).filter(x => x.id !== entry.id) }); close() }}>{t('Delete')}</Button></>}
+  </>
+}
+export const cardioLogSheet = (opts = {}) => ui().openSheet(close => <CardioLog iso={opts.iso} entry={opts.entry} close={close} />)
 
 /* ============================ workout lifecycle ============================ */
 export function startFlow(routineId) {

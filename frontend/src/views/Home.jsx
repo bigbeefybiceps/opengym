@@ -4,12 +4,13 @@ import { useStore } from '../store/useStore.js'
 import { effectiveRoutine, effectiveRoutineId, streakWeeks, lastBW, setsDoneActive } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, isoOf, weekKey, DAYS } from '../lib/format.js'
 import { t, dateLocale } from '../lib/i18n.js'
-import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadStarterPlan, bwDeltaColor } from '../sheets.jsx'
+import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadStarterPlan, bwDeltaColor, cardioLogSheet } from '../sheets.jsx'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { planStatus, blockName } from '../lib/block-plan.js'
+import { cardioPlanFor, cardioOn, cardioLine, cardioIcon } from '../lib/cardio.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
@@ -28,6 +29,12 @@ export default function Home() {
 
   const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7)
   const doneDays = new Set(S.workouts.map(w => w.d))
+  const cardioDays = new Set((S.cardioLog || []).map(c => c.d))
+  // Today's cardio: what the plan asks for, and what has been logged. Once something is
+  // logged the plan's row steps aside — the day's cardio is done, whatever it turned out to be.
+  const cardioPlanned = cardioPlanFor(S, todayISO())
+  const cardioDone = cardioOn(S, todayISO())
+  const distUnit = S.unit === 'lb' ? 'mi' : 'km'
   // The last session logged for today, if any — what the row below reports instead of asking
   // you to start the one you already did. Last wins, so a second session names itself.
   const doneToday = S.workouts.filter(w => w.d === todayISO()).at(-1) || null
@@ -38,7 +45,8 @@ export default function Home() {
     const eff = effectiveRoutineId(S, iso), ovr = S.dayPlan[iso] !== undefined, done = doneDays.has(iso)
     const dot = done ? ' done' : ovr && eff ? ' ovr' : eff ? ' plan' : ''
     strip.push(<div key={i} className={'wday' + (iso === todayISO() ? ' today' : '')} onClick={() => dayOverrideSheet(iso)}>
-      <div className="lbl">{t(DAYS[d.getDay()])}</div><div className="num">{d.getDate()}</div><div className={'dot' + dot} /></div>)
+      <div className="lbl">{t(DAYS[d.getDay()])}</div><div className="num">{d.getDate()}</div>
+      <div className="dots"><div className={'dot' + dot} />{cardioDays.has(iso) && <div className="dot cardio" />}</div></div>)
   }
   const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6)
   const wkLabel = weekOffset === 0 ? t('This week') : `${monday.getDate()} ${monday.toLocaleDateString(dateLocale(), { month: 'short' })} – ${sunday.getDate()} ${sunday.toLocaleDateString(dateLocale(), { month: 'short' })}`
@@ -93,6 +101,22 @@ export default function Home() {
           : routine ? <span className="tag acc">{t('Start')}</span>
           : <Icon name="plus" className="chev" />}
       </div>
+      {/* Cardio sits under the day's session as its own line: it is planned for the day, done
+          before or after or instead, and logged without starting a workout. */}
+      {cardioDone.map(c => <div key={c.id} className="today-row" onClick={() => cardioLogSheet({ entry: c })}>
+        <div className="row" style={{ gap: 9, minWidth: 0 }}>
+          <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="checkCircle" style={{ color: 'var(--teal)' }} /></span>
+          <div style={{ minWidth: 0 }}><div className="lbl2">{t('Cardio')}</div><div className="ttl" style={{ textTransform: 'none' }}>{cardioLine(c, distUnit)}</div></div>
+        </div>
+        <span className="tag" style={{ color: 'var(--teal)', background: 'color-mix(in srgb,var(--teal) 16%,transparent)' }}>{t('Done')}</span>
+      </div>)}
+      {cardioPlanned && !cardioDone.length && <div className="today-row" onClick={() => cardioLogSheet({ iso: todayISO() })}>
+        <div className="row" style={{ gap: 9, minWidth: 0 }}>
+          <span className="lrow-i" style={{ background: 'var(--teal)' }}><Icon name={cardioIcon(cardioPlanned.mod)} /></span>
+          <div style={{ minWidth: 0 }}><div className="lbl2">{t('Cardio')}</div><div className="ttl" style={{ textTransform: 'none' }}>{cardioLine(cardioPlanned, distUnit)}</div></div>
+        </div>
+        <span className="tag" style={{ color: 'var(--teal)', background: 'color-mix(in srgb,var(--teal) 16%,transparent)' }}>{t('Log')}</span>
+      </div>}
     </div>
 
     {!S.routines.length && !S.active && (

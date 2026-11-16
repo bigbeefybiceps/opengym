@@ -25,6 +25,9 @@ export const DEF = {
   // count from. null until migratePlan writes one, which it does on every way state gets in
   // (first load, backup import), so nothing downstream ever sees a state without it.
   plan: null,
+  // Planned cardio per weekday, and the log of what was done (lib/cardio.js). Kept apart from
+  // routines and workouts on purpose — see the note at the top of that file.
+  cardio: {}, cardioLog: [],
   // Equipment profiles (issue: filter Library/picker/routines by what you actually own —
   // e.g. "Home" vs "Gym" — building on the session-only equipment filter from issue #6).
   equipProfiles: [], activeEquipId: null, equipFilterOn: false,
