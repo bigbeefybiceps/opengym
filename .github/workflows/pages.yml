@@ -43,6 +43,9 @@ jobs:
         working-directory: frontend
         env:
           VITE_PERSONAL: '1'
+          # Rest-alert push relay (rest-push/): both values are public.
+          VITE_REST_PUSH_URL: 'https://opengym-rest-push.bigbeefy-gym.workers.dev'
+          VITE_REST_PUSH_KEY: 'BC9oEDKTawczv_Qgxs1MmGvhoS2PTg5PaTjWFdsurdbFk9vz-VF0WpWlDzLD_ZLjLEBqOqBcFQyXMdN9GnzsMcA'
       - run: node scripts/catalogue/stage-media.mjs frontend/dist
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
