@@ -4,6 +4,7 @@ import { beep, vibrate } from '../lib/sound.js'
 import { api } from '../lib/api.js'
 import { t } from '../lib/i18n.js'
 import { useStore } from './useStore.js'
+import { scheduleRestPush, cancelRestPush } from '../lib/rest-push.js'
 
 // Fire-and-forget: lets the server push a "rest over" alert if this tab gets suspended
 // before the local timer completes. No-ops for guests / offline.
@@ -88,6 +89,8 @@ export const useUI = create((set, get) => ({
     set({ timer: { left: sec, total: sec, endsAt } })
     requestRestNotificationPermission()
     pushRestTimer(sec)
+    scheduleRestPush(endsAt)
+    let handedBack = false
     timerTick = () => {
       const tm = get().timer
       if (!tm) return
@@ -105,6 +108,10 @@ export const useUI = create((set, get) => ({
         vibrate([200, 100, 200]); maybeRestNotification(); get().toast(t('Rest over — next set!')); get().stopRest(); return
       }
       if (left <= 3) beep(snd, 660, 0.1)
+      // Watching the last seconds tick down in the app: the app alerts by itself, so the push
+      // queued on the relay is called off — otherwise it lands a moment later on top of the
+      // in-app alert. Once only; a locked phone never gets here, and keeps its push.
+      if (left <= 2 && !handedBack && document.visibilityState === 'visible') { handedBack = true; cancelRestPush() }
       set({ timer: { ...tm, left } })
     }
     timerInt = setInterval(timerTick, 1000)
@@ -119,11 +126,12 @@ export const useUI = create((set, get) => ({
     if (left <= 0) { get().stopRest(); return }
     set({ timer: { ...tm, left, total: tm.total + sec, endsAt: tm.endsAt + sec * 1000 } })
     pushRestTimer(left)
+    scheduleRestPush(tm.endsAt + sec * 1000)
   },
   stopRest() {
     if (timerInt) clearInterval(timerInt); timerInt = null
     if (timerTick) document.removeEventListener('visibilitychange', timerTick); timerTick = null
-    if (get().timer) cancelPushRestTimer()
+    if (get().timer) { cancelPushRestTimer(); cancelRestPush() }
     set({ timer: null })
   },
 

@@ -7,6 +7,7 @@ import { effortOf } from '../lib/history.js'
 import { barsOf, platesOf } from '../lib/plates.js'
 import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
+import { restPushConfigured, restPushSupported, restPushOn, enableRestPush, disableRestPush, testRestPush } from '../lib/rest-push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, PERSONAL, REPO } from '../lib/demo.js'
@@ -172,6 +173,7 @@ export default function Settings() {
     </Section>
 
     {(user || MOBILE) && <NotificationsCard S={S} update={update} toast={toast} />}
+    {!user && !MOBILE && restPushConfigured() && <RestPushCard toast={toast} />}
 
     {/* ---------- equipment ---------- */}
     <EquipmentCard S={S} update={update} />
@@ -286,6 +288,33 @@ function effortHelpSheet() {
     </div>
     <div style={{ height: 8 }} />
   </>)
+}
+
+// The personal build's rest alerts on a locked phone (lib/rest-push.js, rest-push/ relay).
+function RestPushCard({ toast }) {
+  const [on, setOn] = useState(restPushOn())
+  const [busy, setBusy] = useState(false)
+  const supported = restPushSupported()
+  const toggle = async v => {
+    setBusy(true)
+    try {
+      if (v) { await enableRestPush(); setOn(true); toast(t('Rest alerts on')) }
+      else { await disableRestPush(); setOn(false); toast(t('Rest alerts off')) }
+    } catch (e) { toast(e.message || t('Could not change notification settings')) }
+    setBusy(false)
+  }
+  return <>
+    <Section title={t('Notifications')}
+      footer={!supported
+        ? t('On iPhone this works from the home-screen app (iOS 16.4 or later), not from Safari.')
+        : t('When a rest starts, its end time goes to openGym’s alert relay, which sends the notification at that moment, even with the phone locked. Nothing about your workout is sent.')}>
+      <Row icon="bell" iconTint="var(--red)" title={t('Rest alerts when locked')}>
+        <Switch checked={on && supported} disabled={busy || !supported} onChange={toggle} />
+      </Row>
+    </Section>
+    {on && supported && <div style={{ marginTop: -12, marginBottom: 22 }}><Button size="sm" icon="bell"
+      onClick={() => { testRestPush(); toast(t('Test in 5 seconds — lock the phone to see it')) }}>{t('Send test notification')}</Button></div>}
+  </>
 }
 
 function NotificationsCard({ S, update, toast }) {

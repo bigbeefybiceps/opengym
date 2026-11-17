@@ -52,7 +52,12 @@ self.addEventListener('activate', e => {
   ).then(() => self.clients.claim()))
 })
 self.addEventListener('push', e => {
-  const data = e.data ? e.data.json() : {}
+  // An empty push comes from the rest-timer relay (rest-push/): it carries no text, only the
+  // moment, so the words are here. Every push must show a notification on iOS, or Safari stops
+  // delivering them.
+  let data = {}
+  try { data = e.data ? e.data.json() : {} } catch { data = {} }
+  if (!e.data) data = { title: 'Rest over — next set!', body: 'Time for your next set.', tag: 'rest' }
   e.waitUntil(self.registration.showNotification(data.title || 'openGym', {
     body: data.body || '',
     icon: 'icon-512.png',

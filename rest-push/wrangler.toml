@@ -1,0 +1,21 @@
+# The rest-timer push relay for the personal build (see README.md). Free Cloudflare plan:
+# one Worker and one SQLite-backed Durable Object class, whose alarm fires the push.
+name = "opengym-rest-push"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[vars]
+# Only the app itself may schedule pushes (CORS + Origin check).
+ALLOWED_ORIGIN = "https://bigbeefybiceps.github.io"
+# The VAPID "sub" claim: who runs this sender. The app's address, so no e-mail is published.
+VAPID_SUBJECT = "https://bigbeefybiceps.github.io/opengym/"
+# VAPID_PUBLIC_KEY and VAPID_PRIVATE_JWK are secrets: `npm run keys` creates and stores them.
+
+[[durable_objects.bindings]]
+name = "TIMERS"
+class_name = "RestTimer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RestTimer"]
