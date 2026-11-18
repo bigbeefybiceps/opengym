@@ -19,6 +19,7 @@ import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { defaultIncrement } from '../lib/progression.js'
 import { effortScale, exNow } from '../lib/block-plan.js'
+import { pickable, splitName, splitById } from '../lib/splits.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { isWarmupRow, isDropSet, isRestPauseSet, dropsOf, clustersOf, addDrop, addCluster, removeDropAt, removeClusterAt, setDropAt, setClusterAt, nextDropWeight, nextBurstReps } from '../lib/workout-model.js'
 
@@ -28,7 +29,10 @@ function StartChooser() {
   const S = useStore(s => s.S)
   const todayR = effectiveRoutine(S, todayISO())
   const todayOvr = S.dayPlan[todayISO()] !== undefined
-  const others = S.routines.filter(r => r !== todayR)
+  // The active split's routines and loose ones; other splits' routines are a tap further down.
+  const others = pickable(S).filter(r => r !== todayR)
+  const elsewhere = S.routines.filter(r => r !== todayR && !others.includes(r))
+  const [showElsewhere, setShowElsewhere] = useState(false)
   return <div className="narrow">
     <div className="hdr"><div><h1>{t('Start workout')}</h1><div className="sub">{t(DAYN[new Date().getDay()])} — {todayR ? t('today is {0}', todayR.name) : t('rest day, but no one’s stopping you')}</div></div></div>
     {todayR && <div className="card" style={{ borderColor: 'var(--acc)' }}>
@@ -47,6 +51,16 @@ function StartChooser() {
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(exNow(S, r).length)}</div></div>
         <span className="tag acc">{finishedToday(S, r.id) ? t('Reopen') : t('Start')}</span></div>)}</div></>}
+    {elsewhere.length > 0 && <>
+      <button className="linkbtn small muted" style={{ margin: '14px 2px 0', background: 'none', border: 0, padding: 0, color: 'var(--label-2)' }}
+        onClick={() => setShowElsewhere(v => !v)}>
+        <Icon name={showElsewhere ? 'chevronDown' : 'chevronRight'} /> {t('From other splits ({0})', elsewhere.length)}
+      </button>
+      {showElsewhere && <div className="list" style={{ marginTop: 8 }}>{elsewhere.map(r => <div key={r.id} className="item" onClick={() => startFlow(r.id)}>
+        <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
+        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{splitName(S, splitById(S, r.split) || {})} · {exCount(exNow(S, r).length)}</div></div>
+        <span className="tag acc">{finishedToday(S, r.id) ? t('Reopen') : t('Start')}</span></div>)}</div>}
+    </>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow(null)}>{t('Freestyle workout (pick as you go)')}</Button>
     {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}

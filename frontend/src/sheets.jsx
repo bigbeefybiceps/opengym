@@ -25,6 +25,7 @@ import { buildCompletedWorkout, resumeWorkout, activeMs } from './lib/finish-wor
 import { isWarmupRow } from './lib/workout-model.js'
 import { planOf, planStatus, programStartOf, weekCfg, weekStamp, exOf, exNow, listsOf, blockName, effortScale, shiftWeeks, jumpToBlock, startDeload, addBlock, removeBlock, cleanPct, MAX_BLOCKS, MAX_BLOCK_WEEKS } from './lib/block-plan.js'
 import { platesFor, barsOf, platesOf } from './lib/plates.js'
+import { splitsOf, splitById, splitName, splitPlan, splitWeek, routinesIn, isActiveSplit, routineStatus, pickable, addSplit, renameSplit, activateSplit, moveRoutine, removeSplit, MAX_SPLITS } from './lib/splits.js'
 import { homeLayout, moveHomeSection, setHomeSectionHidden, resetHomeLayout } from './lib/home-layout.js'
 import { exerciseHistory } from './lib/exercise-history.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
@@ -108,6 +109,7 @@ export function menuSheet(opts) {
 export function loadStarterPlan() {
   const [push, pull, legs] = starterRoutines()
   update(st => {
+    if (st.split) [push, pull, legs].forEach(r => { r.split = st.split })
     st.routines.push(push, pull, legs)
     st.week[1] = push.id; st.week[3] = pull.id; st.week[5] = legs.id
   })
@@ -1114,9 +1116,9 @@ function DayOverride({ iso, close }) {
     <h3>{fmtDate(iso, true)}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Weekly plan:')} {weeklyR ? weeklyR.name : t('Rest')}{hasOvr && <span style={{ color: 'var(--orange)' }}> · {t('changed for this day')}</span>}<br />{t('Sick, missed a day or want a different session? Pick what to train instead.')}</div>
     <div className="list">
-      {st.routines.map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
+      {pickable(st).map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
-        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
+        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(exNow(st, r, iso).length)}</div></div>
         {effId === r.id && <Icon name="check" className="accent" />}</div>)}
       <div className="item" onClick={() => set('rest')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest / skip this day')}</div></div>{effId === null && <Icon name="check" className="accent" />}</div>
       {hasOvr && <div className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="reset" /></span><div className="grow"><div className="tt">{t('Back to weekly plan')}</div></div></div>}
@@ -1139,9 +1141,9 @@ function DayAssign({ day, close }) {
     </div>
     <div className="list">
       <div className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest day')}</div></div>{!st.week[day] && <Icon name="check" className="accent" />}</div>
-      {st.routines.map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
+      {pickable(st).map(r => <div key={r.id} className="item" onClick={() => set(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
-        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
+        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(exNow(st, r).length)}</div></div>
         {st.week[day] === r.id && <Icon name="check" className="accent" />}</div>)}
     </div>
   </>
@@ -1305,7 +1307,7 @@ export function logPastWorkout(iso, routineId) {
   if (!r) return null
   let w
   update(s => {
-    const week = planStatus(s, iso)
+    const week = routineStatus(s, r, iso)
     const entries = exOf(r, week.block.id).map(raw => {
       const cfg = weekCfg(raw, week)
       const sets = buildSets(s, cfg, { routineId: r.id }).filter(x => !isWarmupRow(x)).map(x => ({ ...x, done: true }))
@@ -1370,9 +1372,9 @@ function PlanSetup({ close }) {
   const plan = pst.plan
   const setPlan = fn => update(s => { s.plan = planOf(s); fn(s.plan, s) })
   return <>
-    <h3>{t('Plan setup')}</h3>
+    <h3>{t('Split setup')}</h3>
     <div style={{ height: 10 }} />
-    <TextField placeholder={t('Plan name')} defaultValue={plan.name} maxLength={40}
+    <TextField placeholder={t('Split name')} defaultValue={plan.name} maxLength={40}
       onChange={e => setPlan(p => { p.name = e.target.value.slice(0, 40) })} />
     <h4 className="sec" style={{ marginTop: 18 }}>{t('Blocks')}</h4>
     <div className="sect-b" style={{ marginBottom: 8 }}>
@@ -1684,7 +1686,7 @@ export function beginWorkout(routineId, bw) {
   // Where in the plan today falls, resolved once: which block's exercises this session uses,
   // and whether it is that block's lighter week. Stamped onto the session rather than read
   // live, so a session opened in February still says what week it was trained in.
-  const week = planStatus(st, todayISO())
+  const week = r ? routineStatus(st, r, todayISO()) : planStatus(st, todayISO())
   const entries = (r ? exOf(r, week.block.id) : []).map(raw => sessionEntry(st, raw, r, week))
   update(s => {
     s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries, wk: weekStamp(week) }
@@ -2157,3 +2159,135 @@ function doFinishWorkout() {
   beep(snd(), 880, 0.15); beep(snd(), 1100, 0.15, 0.18); beep(snd(), 1320, 0.3, 0.36)
   ui().openSheet(close => <FinishSummary w={w} prs={prs} e1prs={e1prs} close={close} />, { kind: 'center', locked: true })
 }
+
+/* ============================ workout splits ============================
+   A split is a named group of routines with its own plan (blocks, position) and week
+   schedule — lib/splits.js. One is active; the rest are paused where they were left. */
+
+/** One line on where a split stands: the active one's week, a paused one's resume point. */
+export function splitLine(st, sp) {
+  const plan = splitPlan(st, sp)
+  const n = routinesIn(st, sp.id).length
+  const count = t(n === 1 ? '{0} routine' : '{0} routines', n)
+  if (isActiveSplit(st, sp.id)) {
+    const pst = planStatus(st, todayISO())
+    return count + ' · ' + t('Week {0} of {1}', pst.week, pst.total) + (plan.blocks.length > 1 ? ' · ' + blockName(pst.block, pst.blockIndex) : '')
+  }
+  if (!plan.start) return count + ' · ' + t('not started')
+  const pst = planStatus({ plan: sp.plan, workouts: st.workouts }, sp.pausedAt || todayISO())
+  return count + ' · ' + t('paused at week {0}', pst.week) + (plan.blocks.length > 1 ? ' · ' + blockName(pst.block, pst.blockIndex) : '')
+}
+
+/** Ask, then switch. Says what happens to both splits, since the week schedule changes under you. */
+export function switchSplitFlow(id, after) {
+  const st = S()
+  const to = splitById(st, id), from = splitById(st, st.split)
+  if (!to || isActiveSplit(st, id)) return
+  const pst = planStatus(st, todayISO())
+  const toPlan = splitPlan(st, to)
+  confirmSheet({
+    title: t('Switch to {0}?', splitName(st, to)),
+    message: t('{0} pauses at week {1} and picks up there when you switch back.', from ? splitName(st, from) : t('Your plan'), pst.week) + ' '
+      + (toPlan.start ? t('{0} resumes at the week it was paused on.', splitName(st, to)) : t('{0} starts at week 1 today.', splitName(st, to))) + ' '
+      + t('Your week schedule becomes {0}’s.', splitName(st, to)),
+    confirmText: t('Switch'),
+    onConfirm: () => {
+      if (S().active) { toast(t('Finish or discard the workout in progress first')); return }
+      update(s => { activateSplit(s, id) })
+      toast(t('{0} is now your active split', splitName(S(), splitById(S(), id))))
+      after && after()
+    },
+  })
+}
+
+function SplitsList({ close }) {
+  const st = useStore(s => s.S)
+  const splits = splitsOf(st)
+  return <>
+    <h3>{t('Workout splits')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Each split groups its routines with their own blocks and week schedule. One is active at a time; the others wait where you left them.')}</div>
+    <div className="sect-b" style={{ marginBottom: 12 }}>
+      {[...splits].sort((a, b) => (isActiveSplit(st, b.id) ? 1 : 0) - (isActiveSplit(st, a.id) ? 1 : 0)).map(sp => (
+        <Row key={sp.id} icon={isActiveSplit(st, sp.id) ? 'play' : 'pause'} iconTint={isActiveSplit(st, sp.id) ? 'var(--acc)' : 'var(--surface-3)'}
+          title={splitName(st, sp)} subtitle={splitLine(st, sp)} accessory="chevron" onClick={() => splitSheet(sp.id)} />
+      ))}
+      {splits.length < MAX_SPLITS && <Row icon="plus" iconTint="var(--acc)" title={t('New split')} onClick={newSplitSheet} />}
+    </div>
+    <Button variant="primary" onClick={close}>{t('Done')}</Button>
+  </>
+}
+export const splitsSheet = () => ui().openSheet(close => <SplitsList close={close} />)
+
+function NewSplit({ close }) {
+  const st = S()
+  const [name, setName] = useState('')
+  const [copy, setCopy] = useState('')
+  const cur = splitById(st, st.split)
+  return <>
+    <h3>{t('New split')}</h3>
+    <div style={{ height: 10 }} />
+    <TextField placeholder={t('Name — e.g. Upper/Lower, PPL')} value={name} maxLength={40} onChange={e => setName(e.target.value)} />
+    <h4 className="sec" style={{ marginTop: 16 }}>{t('Blocks')}</h4>
+    <Segmented className="seg-range" value={copy} onChange={setCopy}
+      options={[{ value: '', label: t('One 6-week block') }, ...(cur ? [{ value: cur.id, label: t('Same as {0}', splitName(st, cur)) }] : [])]} />
+    <div className="small dim" style={{ margin: '8px 2px 18px' }}>
+      {copy ? t('Copies the block lengths and lighter weeks. Routines you move across keep their per-block exercises.') : t('You can add blocks later in the split’s setup.')}
+    </div>
+    <Button variant="primary" onClick={() => {
+      let id
+      update(s => { id = addSplit(s, { name: name.trim() || t('New split'), blocksFrom: copy || null }) })
+      close()
+      if (id) splitSheet(id)
+    }}>{t('Create split')}</Button>
+  </>
+}
+export const newSplitSheet = () => ui().openSheet(close => <NewSplit close={close} />)
+
+function SplitSheet({ id, close }) {
+  const st = useStore(s => s.S)
+  const sp = splitById(st, id)
+  useEffect(() => { if (!sp) close() }, [!sp])
+  if (!sp) return null
+  const active = isActiveSplit(st, id)
+  const name = splitName(st, sp)
+  const toggle = (r, on) => {
+    let dropped = 0
+    update(s => { dropped = moveRoutine(s, r.id, on ? id : null) })
+    if (dropped) toast(t('{0} came off its old split’s week schedule', r.name))
+  }
+  // This split's routines first, then everything else to pick from.
+  const mine = routinesIn(st, id)
+  const rest = st.routines.filter(r => r.split !== id)
+  const where = r => r.split ? t('In {0}', splitName(st, splitById(st, r.split) || {})) : t('Not in a split')
+  return <>
+    <h3>{name}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{active ? t('Active split') + ' · ' + splitLine(st, sp) : splitLine(st, sp)}</div>
+    <TextField placeholder={t('Split name')} defaultValue={splitPlan(st, sp).name} maxLength={40}
+      onChange={e => update(s => { renameSplit(s, id, e.target.value) })} />
+    <div style={{ height: 12 }} />
+    {!active && <Button variant="primary" icon="play" onClick={() => switchSplitFlow(id, close)}>{t('Switch to this split')}</Button>}
+    {active && <Button variant="tinted" icon="gear" onClick={planSetupSheet}>{t('Blocks and start date')}</Button>}
+    <h4 className="sec" style={{ marginTop: 18 }}>{t('Routines in this split')}</h4>
+    <div className="list" style={{ marginBottom: 6 }}>
+      {[...mine, ...rest].map(r => {
+        const on = r.split === id
+        return <div key={r.id} className="item" onClick={() => toggle(r, !on)}>
+          <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
+          <div className="grow"><div className="tt">{r.name}</div><div className="ss">{on ? exCount(exNow(st, r).length) : where(r)}</div></div>
+          <Check checked={on} onChange={() => {}} />
+        </div>
+      })}
+    </div>
+    <div className="small dim" style={{ margin: '0 2px 18px' }}>
+      {t('Blocks follow the split: a routine trains on its own split’s blocks, and a paused split’s routines stay on the block it was paused in.')}
+    </div>
+    {!active && <Button variant="danger" onClick={() => confirmSheet({
+      title: t('Delete {0}?', name),
+      message: t('The split, its blocks and its week schedule are removed. Its routines are kept, in no split. Logged workouts are not affected.'),
+      confirmText: t('Delete'), danger: true,
+      onConfirm: () => { update(s => { removeSplit(s, id) }); close() },
+    })}>{t('Delete split')}</Button>}
+    {active && <div className="small dim" style={{ textAlign: 'center' }}>{t('To delete this split, switch to another one first.')}</div>}
+  </>
+}
+export const splitSheet = id => ui().openSheet(close => <SplitSheet id={id} close={close} />)

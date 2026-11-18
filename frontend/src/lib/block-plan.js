@@ -20,6 +20,7 @@
 // week counter and a separately chosen block — is how the app used to end up telling you it
 // was week 8 of a plan while showing you Block 1.
 import { todayISO } from './format.js'
+import { planHost, routineStatus, pausedSplitOf } from './splits.js'
 
 const clone = o => JSON.parse(JSON.stringify(o))
 const dayMs = 86400000
@@ -189,8 +190,8 @@ export function jumpToBlock(s, blockId, today = todayISO()) {
 /* ------------------------------ per-block exercise lists ------------------------------ */
 /** The exercises a routine prescribes in one block. */
 export const exOf = (r, blockId) => (blockId && r && r.alt && r.alt[blockId]) || (r && r.ex) || []
-/** …and in the block being trained on `iso`. */
-export const exNow = (S, r, iso) => exOf(r, currentBlockId(S, iso))
+/** …and in the block being trained on `iso` — by the routine's own split, which may be paused. */
+export const exNow = (S, r, iso) => exOf(r, routineStatus(S, r, iso).block.id)
 /** Every list a routine holds, for the rare edit that has to reach all of them. */
 export const listsOf = r => [r.ex || [], ...Object.values((r && r.alt) || {})]
 
@@ -203,7 +204,7 @@ export const listsOf = r => [r.ex || [], ...Object.values((r && r.alt) || {})]
  * edit the base at all.
  */
 export function ownList(s, r, blockId) {
-  const blocks = planOf(s).blocks
+  const blocks = planOf(planHost(s, r)).blocks
   if (!blockId || blocks.length < 2) return r.ex
   if (r.alt && r.alt[blockId]) return r.alt[blockId]
   const owner = blocks.find(b => !(r.alt && r.alt[b.id]))
@@ -216,7 +217,7 @@ export function ownList(s, r, blockId) {
 /** Does this block have a list of its own for the routine, or is it reading the base? */
 export const hasOwnList = (s, r, blockId) => {
   if (r.alt && r.alt[blockId]) return true
-  const owner = planOf(s).blocks.find(b => !(r.alt && r.alt[b.id]))
+  const owner = planOf(planHost(s, r)).blocks.find(b => !(r.alt && r.alt[b.id]))
   return !!owner && owner.id === blockId
 }
 
@@ -227,7 +228,7 @@ export function addBlock(s) {
   if (s.plan.blocks.length >= MAX_BLOCKS) return null
   const last = s.plan.blocks[s.plan.blocks.length - 1]
   const b = { id: newId(), name: '', weeks: last.weeks, easy: last.easy ? { ...last.easy } : null }
-  ;(s.routines || []).forEach(r => {
+  ;(s.routines || []).filter(r => !pausedSplitOf(s, r)).forEach(r => {
     r.alt = r.alt || {}
     r.alt[b.id] = clone(exOf(r, last.id))
   })
@@ -240,7 +241,7 @@ export function removeBlock(s, blockId) {
   s.plan = planOf(s)
   if (s.plan.blocks.length < 2) return false
   const rest = s.plan.blocks.filter(b => b.id !== blockId)
-  ;(s.routines || []).forEach(r => {
+  ;(s.routines || []).filter(r => !pausedSplitOf(s, r)).forEach(r => {
     if (r.alt && r.alt[blockId]) delete r.alt[blockId]
     // The block was the only one reading the base list: the base would be orphaned, holding
     // exercises no block shows. Hand it to the first block left instead.
@@ -275,7 +276,7 @@ export function applyToAllBlocks(s, r, blockId, before, after) {
   const changed = [...keys].filter(k => k !== 'id' && k !== 'sg' && JSON.stringify((before || {})[k]) !== JSON.stringify((after || {})[k]))
   if (!changed.length) return 0
   let n = 0
-  planOf(s).blocks.forEach(b => {
+  planOf(planHost(s, r)).blocks.forEach(b => {
     if (b.id === blockId) return
     const list = ownList(s, r, b.id)
     const hit = list.find(e => e.id === after.id)
@@ -288,7 +289,7 @@ export function applyToAllBlocks(s, r, blockId, before, after) {
 
 /** Does this exercise read differently here than in the plan's first block? */
 export function differsFromFirst(S, r, blockId, cfg) {
-  const first = planOf(S).blocks[0]
+  const first = planOf(planHost(S, r)).blocks[0]
   if (!first || first.id === blockId) return false
   const base = exOf(r, first.id).find(e => e.id === cfg.id)
   if (!base) return true

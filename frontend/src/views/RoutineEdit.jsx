@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore.js'
+import { useUI } from '../store/useUI.js'
 import { exOr } from '../lib/exercises.js'
 import { activeProfile, exAvailable } from '../lib/equipment.js'
 import { uid, todayISO } from '../lib/format.js'
@@ -14,13 +15,15 @@ import { Button, SelectRow, Segmented } from '../components/ui.jsx'
 import { POLICIES_FOR, POLICY_NAME, POLICY_DESC, strandedOverrides } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
-import { planStatus, blockName, exOf, ownList, listsOf, hasOwnList, copyBlockList, applyToAllBlocks, differsFromFirst, effortScale } from '../lib/block-plan.js'
+import { splitsOf, splitById, splitName, routineStatus, pausedSplitOf, moveRoutine, forgetRoutine } from '../lib/splits.js'
+import { blockName, exOf, ownList, listsOf, hasOwnList, copyBlockList, applyToAllBlocks, differsFromFirst, effortScale } from '../lib/block-plan.js'
 
 export default function RoutineEdit() {
   const nav = useNavigate()
   const { id } = useParams()
   const S = useStore(s => s.S)
   const update = useStore(s => s.update)
+  const toast = useUI(s => s.toast)
   const r = S.routines.find(x => x.id === id)
   useEffect(() => { if (!r) nav('/plan') }, [!!r])
   // Editing here has no explicit "save" — every field change persists immediately. A single
@@ -29,9 +32,11 @@ export default function RoutineEdit() {
   useEffect(() => () => useStore.getState().autoBackupNow(), [])
   // Which block's prescription is on screen. It opens on the block being trained, because
   // that is the one an edit is almost always meant for; the others are a tap away.
-  const pst = planStatus(S, todayISO())
-  const blocks = pst.plan.blocks
-  const [viewId, setViewId] = useState(pst.block.id)
+  // A routine works on its own split's blocks — a paused split's, at the block it was left on.
+  const pst = r ? routineStatus(S, r, todayISO()) : null
+  const blocks = pst ? pst.plan.blocks : []
+  const paused = r ? pausedSplitOf(S, r) : null
+  const [viewId, setViewId] = useState(pst && pst.block.id)
   if (!r) return null
   const view = blocks.find(b => b.id === viewId) || pst.block
   const viewIdx = blocks.indexOf(view)
@@ -124,6 +129,20 @@ export default function RoutineEdit() {
       </div>}
     </>}
 
+    {splitsOf(S).length > 0 && <div className="sect-b" style={{ marginBottom: 10 }}>
+      <SelectRow icon="folder" title={t('Split')} sheetTitle={t('Move to split')}
+        value={r.split || ''} onChange={v => {
+          let dropped = 0
+          update(s => { dropped = moveRoutine(s, id, v || null) })
+          if (dropped) toast(t('{0} came off its old split’s week schedule', r.name))
+          setViewId(null)
+        }}
+        options={[...splitsOf(S).map(sp => ({ value: sp.id, label: splitName(S, sp) + (sp.id === S.split ? ' · ' + t('active') : '') })), { value: '', label: t('Not in a split') }]} />
+    </div>}
+    {paused && <div className="small dim" style={{ margin: '-4px 2px 12px' }}>
+      {t('{0} is paused, so this routine shows its blocks as they were left.', splitName(S, paused))}
+    </div>}
+
     <div className="sect-b" style={{ marginBottom: 16 }}>
       <SelectRow icon="chartLine" title={t('Progression')} sheetTitle={t('Progression')}
         value={r.prog || 'linear'} onChange={setProg}
@@ -214,6 +233,7 @@ export default function RoutineEdit() {
         update(s => {
           s.routines = s.routines.filter(x => x.id !== id)
           Object.keys(s.week).forEach(k => { if (s.week[k] === id) delete s.week[k] })
+          forgetRoutine(s, id)
           Object.keys(s.dayPlan).forEach(k => { if (s.dayPlan[k] === id) delete s.dayPlan[k] })
         })
         nav('/plan')

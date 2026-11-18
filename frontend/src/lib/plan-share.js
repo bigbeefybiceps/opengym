@@ -97,9 +97,14 @@ function cleanIntensifier(x) {
   return null
 }
 
-/** Build the shareable bundle: every routine, the week schedule, referenced customs. */
+/**
+ * Build the shareable bundle: the active split's routines plus any other routine its week
+ * uses, the week schedule, referenced customs. A state without splits shares every routine.
+ */
 export function buildPlanBundle(S, name) {
-  const routines = (S.routines || []).map(r => ({
+  const onWeek = new Set(Object.values(S.week || {}))
+  const shared = S.split ? (S.routines || []).filter(r => r.split === S.split || onWeek.has(r.id)) : (S.routines || [])
+  const routines = shared.map(r => ({
     id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}), ex: (r.ex || []).map(cleanEx)
   }))
   const usedIds = new Set(routines.flatMap(r => r.ex.map(e => e.id)))
@@ -178,6 +183,9 @@ export function mergePlan(s, bundle, { schedule } = {}) {
     ridMap[r.id] = nid
     s.routines.push({
       id: nid,
+      // A plan loaded with its schedule becomes the active split's; otherwise it lands in no
+      // split, to be sorted where it belongs.
+      ...(schedule && s.split ? { split: s.split } : {}),
       name: r.name || t('Shared routine'),
       emoji: r.emoji,
       ...(r.prog ? { prog: r.prog } : {}),

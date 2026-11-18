@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { DAYN, uid, exCount, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { dayAssignSheet, loadStarterPlan, planToolsSheet, planSetupSheet, jumpBlockSheet, deloadNowSheet, confirmSheet } from '../sheets.jsx'
+import { dayAssignSheet, loadStarterPlan, planToolsSheet, planSetupSheet, jumpBlockSheet, deloadNowSheet, confirmSheet, splitsSheet, splitSheet, newSplitSheet, splitLine } from '../sheets.jsx'
+import { splitsOf, splitName, routinesIn, loose, isActiveSplit } from '../lib/splits.js'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf, DEFAULT_GLYPH } from '../lib/glyphs.js'
@@ -15,7 +17,8 @@ export default function Plan() {
   const update = useStore(s => s.update)
 
   const addRoutine = () => {
-    const r = { id: uid(), name: t('New routine'), emoji: DEFAULT_GLYPH, ex: [] }
+    // A new routine joins the split you are looking at — the active one.
+    const r = { id: uid(), name: t('New routine'), emoji: DEFAULT_GLYPH, ex: [], ...(S.split ? { split: S.split } : {}) }
     update(s => { s.routines.push(r) })
     nav('/plan/r/' + r.id)
   }
@@ -24,6 +27,16 @@ export default function Plan() {
   const { plan, block } = pst
   const multi = plan.blocks.length > 1
   let before = 0
+  const splits = splitsOf(S)
+  const others = splits.filter(sp => !isActiveSplit(S, sp.id))
+  const mine = S.split ? routinesIn(S, S.split) : S.routines
+  const unsorted = S.split ? loose(S) : []
+  // Paused splits are folded away: that is the clutter this page is meant to clear.
+  const [open, setOpen] = useState({})
+  const routineRow = (r, dim) => <div key={r.id} className="item" onClick={() => nav('/plan/r/' + r.id)} style={dim ? { opacity: .75 } : undefined}>
+    <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
+    <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(exNow(S, r).length)}</div></div>
+    <Icon name="chevronRight" className="chev" /></div>
 
   return <>
     <div className="hdr">
@@ -37,7 +50,11 @@ export default function Plan() {
     {S.routines.length > 0 && <div className="card" style={{ borderColor: 'var(--acc)' }}>
       <div className="row between">
         <div style={{ minWidth: 0 }}>
-          <div className="big" style={{ fontSize: 20 }}>{plan.name || t('Training plan')}</div>
+          {/* The card is the active split; its name is where you switch to another. */}
+          <button className="split-name" onClick={splitsSheet} aria-label={t('Workout splits')}>
+            <span className="big" style={{ fontSize: 20 }}>{plan.name || t('Training plan')}</span>
+            <Icon name="chevronDown" />
+          </button>
           <div className="muted small">
             {t('Week {0} of {1}', pst.week, pst.total)}
             {multi ? ' · ' + t('{0}, week {1} of {2}', blockName(block, pst.blockIndex), pst.weekInBlock, block.weeks) : ''}
@@ -103,10 +120,34 @@ export default function Plan() {
         <h4 className="sec" style={{ margin: 0 }}>{t('Routines')}</h4>
         <Button size="sm" variant="tinted" icon="plus" onClick={addRoutine}>{t('New')}</Button>
       </div>
-      {S.routines.length ? <div className="list">{S.routines.map(r => <div key={r.id} className="item" onClick={() => nav('/plan/r/' + r.id)}>
-        <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
-        <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(exNow(S, r).length)}</div></div>
-        <Icon name="chevronRight" className="chev" /></div>)}</div> : <>
+      {S.routines.length ? <>
+        {S.split && <div className="split-hd">
+          <span className="split-dot on" /><span className="grow">{plan.name || t('Training plan')}</span>
+          <span className="small muted">{t('Active')}</span>
+          <button className="iconbtn sm" onClick={() => splitSheet(S.split)} aria-label={t('Choose routines')} title={t('Choose routines')}><Icon name="more" /></button>
+        </div>}
+        {mine.length ? <div className="list">{mine.map(r => routineRow(r))}</div>
+          : <div className="small dim" style={{ margin: '4px 2px 8px' }}>{t('No routines in this split yet — add one, or pick existing ones from the ⋯ menu.')}</div>}
+        {unsorted.length > 0 && <>
+          <div className="split-hd"><span className="split-dot" /><span className="grow">{t('Not in a split')}</span><span className="small muted">{unsorted.length}</span></div>
+          <div className="list">{unsorted.map(r => routineRow(r, true))}</div>
+        </>}
+        {others.length > 0 && <h4 className="sec" style={{ marginTop: 18 }}>{t('Other splits')}</h4>}
+        {others.map(sp => {
+          const rs = routinesIn(S, sp.id)
+          return <div key={sp.id} style={{ marginBottom: 8 }}>
+            <div className="list"><div className="item" onClick={() => setOpen(o => ({ ...o, [sp.id]: !o[sp.id] }))}>
+              <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="folder" /></span>
+              <div className="grow"><div className="tt">{splitName(S, sp)}</div><div className="ss">{splitLine(S, sp)}</div></div>
+              <button className="iconbtn sm" onClick={e => { e.stopPropagation(); splitSheet(sp.id) }} aria-label={t('Split options')}><Icon name="more" /></button>
+              <Icon name={open[sp.id] ? 'chevronDown' : 'chevronRight'} className="chev" />
+            </div>
+            {open[sp.id] && rs.map(r => routineRow(r, true))}</div>
+          </div>
+        })}
+        <div style={{ height: 10 }} />
+        <Button variant="ghost" icon="folder" onClick={newSplitSheet}>{t('New split')}</Button>
+      </> : <>
         <div className="empty"><div className="ico"><Icon name="clipboard" /></div>{t('No routines yet.')}<br />{t('Create one or load the starter plan.')}</div>
         <Button icon="sparkles" onClick={loadStarterPlan}>{t('Load starter plan (Push / Pull / Legs)')}</Button>
       </>}

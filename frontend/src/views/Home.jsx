@@ -63,7 +63,7 @@ export default function Home() {
   // nothing to be reminded of: the block follows from the week (Plan page).
   const pst = planStatus(S, todayISO())
   const planLine = S.routines.length
-    ? t('Week {0} of {1}', pst.week, pst.total) + (pst.plan.blocks.length > 1 ? ' · ' + blockName(pst.block, pst.blockIndex) : '') + (pst.easy ? ' · ' + (pst.easyName || t('Lighter week')) : '')
+    ? ((S.splits || []).length > 1 ? (pst.plan.name || t('Training plan')) + ' · ' : '') + t('Week {0} of {1}', pst.week, pst.total) + (pst.plan.blocks.length > 1 ? ' · ' + blockName(pst.block, pst.blockIndex) : '') + (pst.easy ? ' · ' + (pst.easyName || t('Lighter week')) : '')
     : null
 
   // The page's cards, by section id. What shows, and in what order, is the user's to choose

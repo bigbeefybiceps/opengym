@@ -7,6 +7,7 @@ import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder, writeAutoBackup } from '../lib/mobile.js'
 import { loadRemote, chooseLocal, forgetRemote, connect } from '../lib/remote.js'
 import { migratePlan } from '../lib/block-plan.js'
+import { migrateSplits } from '../lib/splits.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
@@ -25,6 +26,9 @@ export const DEF = {
   // count from. null until migratePlan writes one, which it does on every way state gets in
   // (first load, backup import), so nothing downstream ever sees a state without it.
   plan: null,
+  // Workout splits (lib/splits.js): named groups of routines, each with its own plan and week.
+  // The active one's plan and week are `plan` and `week` above; migrateSplits makes the first.
+  splits: [], split: null,
   // Planned cardio per weekday, and the log of what was done (lib/cardio.js). Kept apart from
   // routines and workouts on purpose — see the note at the top of that file.
   cardio: {}, cardioLog: [],
@@ -41,9 +45,9 @@ const clone = o => JSON.parse(JSON.stringify(o))
 function loadState() {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return migratePlan(Object.assign(clone(DEF), JSON.parse(raw)))
+    if (raw) return migrateSplits(migratePlan(Object.assign(clone(DEF), JSON.parse(raw))))
   } catch (e) { /* ignore */ }
-  return migratePlan(clone(DEF))
+  return migrateSplits(migratePlan(clone(DEF)))
 }
 
 const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length)
@@ -112,7 +116,7 @@ export const useStore = create((set, get) => {
     },
     // An imported backup may predate plans; it is brought up to shape here, at the one door
     // every wholesale replacement comes through.
-    replaceState(S, push = false) { persist(migratePlan(clone(S)), push) },
+    replaceState(S, push = false) { persist(migrateSplits(migratePlan(clone(S))), push) },
 
     // Fires after the moments where losing local data would actually hurt — a workout just
     // logged, a routine just edited — not on every keystroke. No-op off mobile or with the

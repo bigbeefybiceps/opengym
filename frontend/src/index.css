@@ -1051,6 +1051,15 @@ h4.sec{
 .planbar{display:flex;gap:4px;margin:12px 0 6px}
 .planbar>div{height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden;min-width:6px}
 .planbar>div>i{display:block;height:100%;background:var(--acc)}
+/* Workout splits (Plan page): the active split's name is the switcher; routines are grouped under split headers. */
+.split-name{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;color:inherit;font:inherit;cursor:pointer;max-width:100%;text-align:left}
+.split-name .big{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.split-name svg{flex:none;font-size:14px;color:var(--label-2)}
+.split-hd{display:flex;align-items:center;gap:8px;margin:14px 2px 8px;font-weight:600;font-size:14px}
+.split-hd .grow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.split-dot{width:8px;height:8px;border-radius:50%;background:var(--surface-3);flex:none}
+.split-dot.on{background:var(--acc)}
+.iconbtn.sm{width:30px;height:30px;font-size:15px;border-radius:9px;flex:none}
 .planlbl{display:flex;gap:4px;font-size:12px;color:var(--label-2)}
 .planlbl>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .planlbl>span.on{color:var(--acc);font-weight:500}
