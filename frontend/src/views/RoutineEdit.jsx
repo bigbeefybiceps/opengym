@@ -16,6 +16,7 @@ import { POLICIES_FOR, POLICY_NAME, POLICY_DESC, strandedOverrides } from '../li
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 import { splitsOf, splitById, splitName, routineStatus, pausedSplitOf, moveRoutine, forgetRoutine } from '../lib/splits.js'
+import { carryConfig, replaceAt, replaceIn } from '../lib/routine-replace.js'
 import { blockName, exOf, ownList, listsOf, hasOwnList, copyBlockList, applyToAllBlocks, differsFromFirst, effortScale } from '../lib/block-plan.js'
 
 export default function RoutineEdit() {
@@ -65,6 +66,25 @@ export default function RoutineEdit() {
     x.push({ id: exId, ...cfg })
     if (opts?.all) others(s, rt).forEach(l => { if (!l.some(e => e.id === exId)) l.push({ id: exId, ...JSON.parse(JSON.stringify(cfg)) }) })
   })
+  // Swap the exercise at `i` for another, in the same place. The new one's sheet opens with the
+  // old prescription carried over (lib/routine-replace.js) so you only fix what differs — the
+  // weight, usually — and with "all blocks" the swap reaches the other blocks too.
+  const replaceFlow = i => {
+    const old = list[i]
+    const cap = n => n.charAt(0).toUpperCase() + n.slice(1)
+    const oldName = cap(exerciseNameFor(exOr(old.id)))
+    // The picker stays open after a pick when adding (to add several in a row); a replace is
+    // one pick, so it closes on the way to the review sheet.
+    const pk = exercisePicker(ex => { pk.close(); exConfigSheet(ex, null, (cfg, opts) => {
+      let done = false
+      edit((x, s, rt) => {
+        if (!x[i] || x[i].id !== old.id) return
+        done = replaceAt(x, i, ex.id, cfg)
+        if (opts?.all) others(s, rt).forEach(l => replaceIn(l, old.id, ex.id))
+      })
+      if (done) toast(t('{0} replaced with {1}', oldName, cap(exerciseNameFor(ex))))
+    }, null, r, carryConfig(old, ex.id), { ...ctx, replacing: oldName }, t('Replace')) }, { title: t('Replace {0} with…', oldName) })
+  }
   const move = (i, dir) => edit(ex => { const j = i + dir; if (j < 0 || j >= ex.length) return;[ex[i], ex[j]] = [ex[j], ex[i]]; cleanupSg(ex) })
   const toggleLink = i => edit(ex => {
     if (i < 1) return
@@ -168,7 +188,7 @@ export default function RoutineEdit() {
       return <div key={i}>
         {unitFirst.has(i) && <div className="ss-label"><Icon name="link" />{t('Superset')}</div>}
         <div className={'item' + (inSS.has(i) ? ' in-ss' : '')} onClick={() => {
-          exConfigSheet(ex, e, (cfg, opts) => saveAt(i, cfg, opts), opts => removeAt(i, opts), r, null, ctx)
+          exConfigSheet(ex, e, (cfg, opts) => saveAt(i, cfg, opts), opts => removeAt(i, opts), r, null, ctx, undefined, () => replaceFlow(i))
         }}>
           <Thumb ex={ex} />
           <div className="grow"><div className="tt capitalize">{exerciseNameFor(ex)}</div><div className="ss">{exLine(e, S.unit)}</div>

@@ -754,7 +754,7 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
   </>
 }
 
-function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, ctx, saveLabel }) {
+function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, ctx, saveLabel, onReplace }) {
   const st = useStore(s => s.S)
   const cardio = isCardio(ex.id)
   const [c, setC] = useState(existing || initial || defaultConfig(ex.id))
@@ -973,8 +973,10 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, ctx
     </>}
     <ProgressionFields ex={ex} mode={mode} c={c} setC={setC} routine={routine} unit={st.unit} />
     {ctx?.blocks > 1 && <div className="sect-b" style={{ marginBottom: 18 }}>
-      <Row icon="list" iconTint="var(--blue)" title={existing ? t('Apply to all blocks') : t('Add to all blocks')}
-        subtitle={existing
+      <Row icon="list" iconTint="var(--blue)" title={ctx.replacing ? t('Replace in all blocks') : existing ? t('Apply to all blocks') : t('Add to all blocks')}
+        subtitle={ctx.replacing
+          ? t('{0} is swapped for this one wherever it appears, keeping each block’s own sets and targets.', ctx.replacing)
+          : existing
           ? t('Only what you change here is copied to this exercise in the other blocks. Their own differences stay.')
           : t('Otherwise it is added to {0} only.', ctx.blockName)}>
         <Switch checked={all} onChange={setAll} />
@@ -985,6 +987,7 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, ctx
       value={c.note || ''} onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
     <Button variant="primary" onClick={save}>{saveLabel || (existing ? t('Save') : t('Add to routine'))}</Button>
     {ex.custom && <><div style={{ height: 8 }} /><Button icon="pencil" onClick={() => { close(); customExSheet(ex) }}>{t('Edit or delete this exercise')}</Button></>}
+    {onReplace && <><div style={{ height: 8 }} /><Button icon="shuffle" onClick={() => { close(); onReplace() }}>{t('Replace with another exercise')}</Button></>}
     {onDelete && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { close(); onDelete({ all }) }}>
       {ctx?.blocks > 1 ? (all ? t('Remove from every block') : t('Remove from {0}', ctx.blockName)) : t('Remove from routine')}
     </Button></>}
@@ -994,7 +997,7 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, ctx
 // and is absent wherever there is no block to speak of (mid-session, from the library).
 // `saveLabel` words the button for a pick that does not go into a routine: an exercise added to,
 // or swapped into, the running workout.
-export const exConfigSheet = (ex, existing, onSave, onDelete, routine, initial, ctx, saveLabel) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} initial={initial} onSave={onSave} onDelete={onDelete} routine={routine} ctx={ctx} saveLabel={saveLabel} close={close} />)
+export const exConfigSheet = (ex, existing, onSave, onDelete, routine, initial, ctx, saveLabel, onReplace) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} initial={initial} onSave={onSave} onDelete={onDelete} routine={routine} ctx={ctx} saveLabel={saveLabel} onReplace={onReplace} close={close} />)
 
 /* ============================ glyph picker ============================ */
 // Grouped by what the glyph means for a training day, so picking one is a scan
