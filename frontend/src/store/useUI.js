@@ -4,7 +4,7 @@ import { beep, vibrate } from '../lib/sound.js'
 import { api } from '../lib/api.js'
 import { t } from '../lib/i18n.js'
 import { useStore } from './useStore.js'
-import { scheduleRestPush, cancelRestPush } from '../lib/rest-push.js'
+import { scheduleRestPush, cancelRestPush, restPushOn } from '../lib/rest-push.js'
 
 // Fire-and-forget: lets the server push a "rest over" alert if this tab gets suspended
 // before the local timer completes. No-ops for guests / offline.
@@ -38,10 +38,10 @@ const maybeRestNotification = async () => {
     // service-worker registration path is the one that actually pops there.
     const reg = await navigator.serviceWorker?.getRegistration?.()
     if (reg?.showNotification) {
-      reg.showNotification(t('Rest over — next set!'), { body: t('Rest over — next set!') })
+      reg.showNotification(t('Rest over — next set!'), { body: t('Rest over — next set!'), tag: 'rest' })
       return
     }
-    new Notification(t('Rest over — next set!'), { body: t('Rest over — next set!') })
+    new Notification(t('Rest over — next set!'), { body: t('Rest over — next set!'), tag: 'rest' })
   } catch {
     // Intentionally ignore: notification APIs vary by browser and policy in edge cases.
   }
@@ -105,7 +105,13 @@ export const useUI = create((set, get) => ({
         const late = Date.now() - tm.endsAt
         if (late > REST_LATE_MS) { get().stopRest(); get().toast(t('Rest ended {0} ago', fmtAgo(late))); return }
         beep(snd, 880, 0.15); beep(snd, 880, 0.15, 0.25); beep(snd, 1320, 0.4, 0.5)
-        vibrate([200, 100, 200]); maybeRestNotification(); get().toast(t('Rest over — next set!')); get().stopRest(); return
+        // In the background but not yet suspended (just locked, or another app on top), this
+        // tick and the relay's push land at the same moment. With the relay on, the push is the
+        // notification: the page shows none of its own, and leaves the push alone — a cancel
+        // sent now could reach the relay before its alarm and leave no notification at all.
+        const relayed = document.visibilityState === 'hidden' && restPushOn()
+        vibrate([200, 100, 200]); if (!relayed) maybeRestNotification(); get().toast(t('Rest over — next set!'))
+        get().stopRest({ keepPush: relayed }); return
       }
       if (left <= 3) beep(snd, 660, 0.1)
       // Watching the last seconds tick down in the app: the app alerts by itself, so the push
@@ -128,10 +134,10 @@ export const useUI = create((set, get) => ({
     pushRestTimer(left)
     scheduleRestPush(tm.endsAt + sec * 1000)
   },
-  stopRest() {
+  stopRest(opts) {
     if (timerInt) clearInterval(timerInt); timerInt = null
     if (timerTick) document.removeEventListener('visibilitychange', timerTick); timerTick = null
-    if (get().timer) { cancelPushRestTimer(); cancelRestPush() }
+    if (get().timer) { cancelPushRestTimer(); if (!(opts && opts.keepPush === true)) cancelRestPush() }
     set({ timer: null })
   },
 

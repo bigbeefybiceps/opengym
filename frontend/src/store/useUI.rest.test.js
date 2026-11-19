@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const sound = vi.hoisted(() => ({ beep: vi.fn(), vibrate: vi.fn() }))
 vi.mock('../lib/sound.js', () => sound)
 vi.mock('../lib/api.js', () => ({ api: vi.fn(() => Promise.resolve({})) }))
-const relay = vi.hoisted(() => ({ scheduleRestPush: vi.fn(), cancelRestPush: vi.fn() }))
+const relay = vi.hoisted(() => ({ scheduleRestPush: vi.fn(), cancelRestPush: vi.fn(), restPushOn: vi.fn(() => false) }))
 vi.mock('../lib/rest-push.js', () => relay)
 import { useUI, REST_LATE_MS } from './useUI.js'
 
-beforeEach(() => { vi.useFakeTimers(); sound.beep.mockClear(); sound.vibrate.mockClear(); relay.scheduleRestPush.mockClear(); relay.cancelRestPush.mockClear(); useUI.setState({ timer: null, toastMsg: '' }) })
+beforeEach(() => { vi.useFakeTimers(); sound.beep.mockClear(); sound.vibrate.mockClear(); relay.scheduleRestPush.mockClear(); relay.cancelRestPush.mockClear(); relay.restPushOn.mockReturnValue(false); useUI.setState({ timer: null, toastMsg: '' }) })
 afterEach(() => { useUI.getState().stopRest(); vi.useRealTimers() })
 
 describe('rest timer end', () => {
@@ -49,5 +49,39 @@ describe('the lock-screen relay', () => {
     expect(relay.cancelRestPush).not.toHaveBeenCalled()
     vi.advanceTimersByTime(1000)
     expect(relay.cancelRestPush).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('one notification, not two', () => {
+  const hide = v => Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'hidden' : 'visible') })
+  const notified = () => {
+    const showNotification = vi.fn()
+    Object.defineProperty(globalThis, 'Notification', { configurable: true, value: Object.assign(vi.fn(), { permission: 'granted' }) })
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: () => Promise.resolve({ showNotification }) } })
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => document.visibilityState === 'hidden' })
+    return showNotification
+  }
+  afterEach(() => hide(false))
+
+  it('with the relay on, a rest ending in the background leaves the notification to the push', async () => {
+    const show = notified()
+    relay.restPushOn.mockReturnValue(true)
+    hide(true)
+    useUI.getState().startRest(3)
+    vi.advanceTimersByTime(3000)
+    await vi.runAllTimersAsync()
+    expect(useUI.getState().timer).toBeNull()
+    expect(show).not.toHaveBeenCalled()
+    expect(relay.cancelRestPush).not.toHaveBeenCalled()   // the push it relies on stays queued
+  })
+
+  it('without the relay, the page still shows its own notification in the background', async () => {
+    const show = notified()
+    hide(true)
+    useUI.getState().startRest(3)
+    vi.advanceTimersByTime(3000)
+    await vi.runAllTimersAsync()
+    expect(show).toHaveBeenCalledTimes(1)
+    expect(show.mock.calls[0][1].tag).toBe('rest')
   })
 })
