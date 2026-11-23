@@ -12,6 +12,8 @@ import { EXIDX, isBodyweightEq } from './exercises.js'
 import { modeOf, fmtSec, isBw, isPerSide, sideReps, MAX_PLANNED_WARMUPS } from './history.js'
 import { uid, todayISO, DAYN, fmtNum, exCount } from './format.js'
 import { t, exerciseNameFor } from './i18n-core.js'
+import { planOf } from './block-plan.js'
+import { addSplit, splitById, activateSplit } from './splits.js'
 
 const PLAN_FMT = 1
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]   // Mon-first, matching the Plan screen
@@ -54,8 +56,8 @@ function cleanEx(e) {
   const intens = cleanIntensifier(e.intensifier)
   if (intens) o.intensifier = intens
   // Effort targets, the last-set technique and the lighter week's own numbers are as much the
-  // prescription as sets and reps are. A plan file carries each routine as its first block
-  // prescribes it; the blocks themselves travel in a backup, not here.
+  // prescription as sets and reps are. A plan file carries each routine's base list, plus the
+  // plan's blocks and each block's own list (`alt`), so it can arrive as a split of its own.
   ;['rir', 'rirEasy', 'rpe', 'rpeEasy'].forEach(k => {
     const a = cleanEffort(e[k])
     if (a) o[k] = a
@@ -104,16 +106,22 @@ function cleanIntensifier(x) {
 export function buildPlanBundle(S, name) {
   const onWeek = new Set(Object.values(S.week || {}))
   const shared = S.split ? (S.routines || []).filter(r => r.split === S.split || onWeek.has(r.id)) : (S.routines || [])
-  const routines = shared.map(r => ({
-    id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}), ex: (r.ex || []).map(cleanEx)
-  }))
-  const usedIds = new Set(routines.flatMap(r => r.ex.map(e => e.id)))
+  const blocks = planOf(S).blocks
+  const blockIds = new Set(blocks.map(b => b.id))
+  const routines = shared.map(r => {
+    const alt = Object.fromEntries(Object.entries(r.alt || {}).filter(([k]) => blockIds.has(k)).map(([k, l]) => [k, (l || []).map(cleanEx)]))
+    return {
+      id: r.id, name: r.name, emoji: r.emoji, ...(r.prog ? { prog: r.prog } : {}), ex: (r.ex || []).map(cleanEx),
+      ...(Object.keys(alt).length ? { alt } : {}),
+    }
+  })
+  const usedIds = new Set(routines.flatMap(r => [...r.ex, ...Object.values(r.alt || {}).flat()].map(e => e.id)))
   const customEx = (S.customEx || [])
     .filter(c => usedIds.has(c.id))
     .map(c => ({ id: c.id, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) }))
   const week = {}
   WEEK_ORDER.forEach(d => { if (S.week?.[d]) week[d] = S.week[d] })
-  return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || '', week, routines, customEx }
+  return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || S.plan?.name || '', week, blocks, routines, customEx }
 }
 
 /**
@@ -133,25 +141,32 @@ export function parsePlan(raw) {
   const customEx = (Array.isArray(data.customEx) ? data.customEx : []).filter(c => c && c.id)
   const known = new Set(customEx.map(c => c.id))
   let dropped = 0
-  const routines = data.routines.filter(r => r && Array.isArray(r.ex)).map(r => ({
-    ...r,
-    ex: r.ex.filter(e => {
-      const ok = !!e && (known.has(e.id) || !!EXIDX[e.id])
-      if (!ok) dropped++
-      return ok
-    }).map(e => {
-      // The exercises pass through as written, so the two fields that carry numbers into the
-      // planner get the same clamps on the way in that they get on the way out.
-      const warm = cleanWarmupSets(e.warmupSets)
-      const intens = cleanIntensifier(e.intensifier)
-      const { warmupSets, intensifier, ...rest } = e
-      return { ...rest, ...(warm ? { warmupSets: warm } : {}), ...(intens ? { intensifier: intens } : {}) }
-    })
-  }))
+  // Blocks are optional (older files have none); when present they are cleaned like a plan's.
+  const blocks = Array.isArray(data.blocks) && data.blocks.length ? planOf({ plan: { blocks: data.blocks } }).blocks : null
+  const blockIds = new Set((blocks || []).map(b => b.id))
+  const cleanList = list => list.filter(e => {
+    const ok = !!e && (known.has(e.id) || !!EXIDX[e.id])
+    if (!ok) dropped++
+    return ok
+  }).map(e => {
+    // The exercises pass through as written, so the two fields that carry numbers into the
+    // planner get the same clamps on the way in that they get on the way out.
+    const warm = cleanWarmupSets(e.warmupSets)
+    const intens = cleanIntensifier(e.intensifier)
+    const { warmupSets, intensifier, ...rest } = e
+    return { ...rest, ...(warm ? { warmupSets: warm } : {}), ...(intens ? { intensifier: intens } : {}) }
+  })
+  const routines = data.routines.filter(r => r && Array.isArray(r.ex)).map(r => {
+    const { alt: rawAlt, ...rest } = r
+    const alt = Object.fromEntries(Object.entries(rawAlt && typeof rawAlt === 'object' ? rawAlt : {})
+      .filter(([k, l]) => blockIds.has(k) && Array.isArray(l)).map(([k, l]) => [k, cleanList(l)]))
+    return { ...rest, ex: cleanList(r.ex), ...(Object.keys(alt).length ? { alt } : {}) }
+  })
   return {
     name: (data.name || '').trim(),
     routines,
     week: data.week || {},
+    blocks,
     customEx,
     dropped,
     routineCount: routines.length,
@@ -167,7 +182,15 @@ export function parsePlan(raw) {
  *  - schedule: optional; when on, the shared week REPLACES yours (days the shared plan
  *    leaves empty become rest days — a half-overwritten week would silently mix two plans)
  */
-export function mergePlan(s, bundle, { schedule } = {}) {
+export function mergePlan(s, bundle, { schedule, asSplit = false, activate = false } = {}) {
+  // As a split of its own: the file's blocks (with their ids, which its routines' per-block
+  // lists are keyed by) and its week go onto a new, paused split, and the routines join it.
+  let splitId = null
+  if (asSplit) {
+    splitId = addSplit(s, { name: bundle.name || t('Imported split') })
+    if (!splitId) return { routines: 0 }
+    if (bundle.blocks) splitById(s, splitId).plan.blocks = JSON.parse(JSON.stringify(bundle.blocks))
+  }
   s.customEx = s.customEx || []
   const exIdMap = {}
   bundle.customEx.forEach(c => {
@@ -185,14 +208,20 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       id: nid,
       // A plan loaded with its schedule becomes the active split's; otherwise it lands in no
       // split, to be sorted where it belongs.
-      ...(schedule && s.split ? { split: s.split } : {}),
+      ...(splitId ? { split: splitId } : schedule && s.split ? { split: s.split } : {}),
       name: r.name || t('Shared routine'),
       emoji: r.emoji,
       ...(r.prog ? { prog: r.prog } : {}),
-      ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id }))
+      ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id })),
+      // Per-block lists only mean something under the blocks they were written for.
+      ...(splitId && r.alt ? { alt: Object.fromEntries(Object.entries(r.alt).map(([k, l]) => [k, l.map(e => ({ ...e, id: exIdMap[e.id] || e.id }))])) } : {}),
     })
   })
-  if (schedule) {
+  if (splitId) {
+    const sp = splitById(s, splitId)
+    Object.entries(bundle.week || {}).forEach(([d, oldId]) => { if (ridMap[oldId]) sp.week[d] = ridMap[oldId] })
+    if (activate) activateSplit(s, splitId)
+  } else if (schedule) {
     WEEK_ORDER.forEach(d => { delete s.week[d] })
     Object.entries(bundle.week || {}).forEach(([d, oldId]) => {
       if (ridMap[oldId]) s.week[d] = ridMap[oldId]

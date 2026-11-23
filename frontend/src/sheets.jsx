@@ -1072,12 +1072,23 @@ export const planImportSheet = bundle => ui().openSheet(close => <PlanImport bun
 
 function PlanImport({ bundle, close }) {
   const [schedule, setSchedule] = useState(false)
+  // A file that carries blocks is a whole plan: by default it arrives as a split of its own.
+  const [asSplit, setAsSplit] = useState(!!bundle.blocks)
+  const [activate, setActivate] = useState(false)
+  const st = S()
+  const curName = splitName(st, splitById(st, st.split) || {})
   const apply = () => {
-    update(s => mergePlan(s, bundle, { schedule }))
+    if (asSplit && activate && S().active) { toast(t('Finish or discard the workout in progress first')); return }
+    update(s => mergePlan(s, bundle, { schedule, asSplit, activate }))
     close()
-    toast(t('Added {0} routines to your plan', bundle.routineCount))
+    toast(asSplit
+      ? (activate ? t('{0} imported and now your active split', bundle.name || t('Imported split')) : t('{0} imported as a new split', bundle.name || t('Imported split')))
+      : t('Added {0} routines to your plan', bundle.routineCount))
     nav('/plan')
   }
+  const blocksLine = bundle.blocks
+    ? ' · ' + t(bundle.blocks.length === 1 ? '{0} block' : '{0} blocks', bundle.blocks.length) + ' (' + bundle.blocks.map(b => b.weeks).join(' + ') + ' ' + t('weeks') + ')'
+    : ''
   return <>
     <h3>{bundle.name ? t('Import “{0}”', bundle.name) : t('Import this plan')}</h3>
     <div className="muted small" style={{ marginBottom: 14 }}>
@@ -1085,19 +1096,31 @@ function PlanImport({ bundle, close }) {
       {' · ' + exCount(bundle.exerciseCount)}
       {bundle.scheduledDays > 0
         ? ' · ' + t(bundle.scheduledDays === 1 ? 'scheduled on {0} day' : 'scheduled on {0} days', bundle.scheduledDays)
-        : ''}
+        : ''}{blocksLine}
     </div>
-    <div className="dim small" style={{ marginBottom: 14, lineHeight: 1.4 }}>{t('These are added as new routines — nothing you already have is changed.')}</div>
+    <div style={{ marginBottom: 12 }}>
+      <Segmented className="seg-range" value={asSplit ? 'split' : 'add'} onChange={v => setAsSplit(v === 'split')}
+        options={[{ value: 'split', label: t('As a new split') }, { value: 'add', label: t('Into {0}', curName) }]} />
+    </div>
+    <div className="dim small" style={{ marginBottom: 14, lineHeight: 1.4 }}>
+      {asSplit
+        ? t('A new split with these routines, {0} and the week schedule. Nothing you already have is changed.', bundle.blocks ? t('its own blocks') : t('one 6-week block'))
+        : t('These are added as new routines — nothing you already have is changed.')}
+    </div>
     {bundle.dropped > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 14, lineHeight: 1.4 }}>
       {t(bundle.dropped === 1
         ? '{0} exercise in the file isn’t in your library and was left out.'
         : '{0} exercises in the file aren’t in your library and were left out.', bundle.dropped)}
     </div>}
-    {bundle.scheduledDays > 0 && <div className="row between" style={{ padding: '10px 2px', borderTop: '1px solid var(--sep)', borderBottom: '1px solid var(--sep)', marginBottom: 16, gap: 12 }}>
+    {asSplit && <div className="row between" style={{ padding: '10px 2px', borderTop: '1px solid var(--sep)', borderBottom: '1px solid var(--sep)', marginBottom: 16, gap: 12 }}>
+      <div><div className="tt" style={{ fontSize: 15 }}>{t('Switch to it now')}</div><div className="small dim">{t('Otherwise {0} carries on, and you switch from the Plan page when ready.', curName)}</div></div>
+      <Switch checked={activate} onChange={setActivate} />
+    </div>}
+    {!asSplit && bundle.scheduledDays > 0 && <div className="row between" style={{ padding: '10px 2px', borderTop: '1px solid var(--sep)', borderBottom: '1px solid var(--sep)', marginBottom: 16, gap: 12 }}>
       <div><div className="tt" style={{ fontSize: 15 }}>{t('Use this weekly schedule')}</div><div className="small dim">{t('Replaces your current Mon–Sun assignments.')}</div></div>
       <Switch checked={schedule} onChange={setSchedule} />
     </div>}
-    <Button variant="primary" onClick={apply}>{t('Add to my plan')}</Button>
+    <Button variant="primary" onClick={apply}>{asSplit ? t('Import split') : t('Add to my plan')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
   </>
