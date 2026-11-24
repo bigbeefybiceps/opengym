@@ -10,7 +10,7 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { planStatus, blockName } from '../lib/block-plan.js'
-import { cardioPlanFor, cardioOn, cardioLine, cardioIcon } from '../lib/cardio.js'
+import { cardioStillPlanned, cardioOn, cardioLine, cardioIcon } from '../lib/cardio.js'
 import { homeLayout } from '../lib/home-layout.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -31,9 +31,9 @@ export default function Home() {
   const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7)
   const doneDays = new Set(S.workouts.map(w => w.d))
   const cardioDays = new Set((S.cardioLog || []).map(c => c.d))
-  // Today's cardio: what the plan asks for, and what has been logged. Once something is
-  // logged the plan's row steps aside — the day's cardio is done, whatever it turned out to be.
-  const cardioPlanned = cardioPlanFor(S, todayISO())
+  // Today's cardio: what has been logged, and the planned sessions still to do. Each logged
+  // entry ticks off one planned session, whatever it turned out to be.
+  const cardioLeft = cardioStillPlanned(S, todayISO())
   const cardioDone = cardioOn(S, todayISO())
   const distUnit = S.unit === 'lb' ? 'mi' : 'km'
   // The last session logged for today, if any — what the row below reports instead of asking
@@ -110,13 +110,13 @@ export default function Home() {
         </div>
         <span className="tag" style={{ color: 'var(--teal)', background: 'color-mix(in srgb,var(--teal) 16%,transparent)' }}>{t('Done')}</span>
       </div>)}
-      {cardioPlanned && !cardioDone.length && <div className="today-row" onClick={() => cardioLogSheet({ iso: todayISO() })}>
+      {cardioLeft.map((p, i) => <div key={'p' + i} className="today-row" onClick={() => cardioLogSheet({ iso: todayISO() })}>
         <div className="row" style={{ gap: 9, minWidth: 0 }}>
-          <span className="lrow-i" style={{ background: 'var(--teal)' }}><Icon name={cardioIcon(cardioPlanned.mod)} /></span>
-          <div style={{ minWidth: 0 }}><div className="lbl2">{t('Cardio')}</div><div className="ttl" style={{ textTransform: 'none' }}>{cardioLine(cardioPlanned, distUnit)}</div></div>
+          <span className="lrow-i" style={{ background: 'var(--teal)' }}><Icon name={cardioIcon(p.mod)} /></span>
+          <div style={{ minWidth: 0 }}><div className="lbl2">{t('Cardio')}</div><div className="ttl" style={{ textTransform: 'none' }}>{cardioLine(p, distUnit)}</div></div>
         </div>
         <span className="tag" style={{ color: 'var(--teal)', background: 'color-mix(in srgb,var(--teal) 16%,transparent)' }}>{t('Log')}</span>
-      </div>}
+      </div>)}
     </div>
     ),
     bw: (

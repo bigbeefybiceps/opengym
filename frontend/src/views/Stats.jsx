@@ -6,7 +6,7 @@ import { lastBW, streakWeeks, setLabel, modeOf, effortOf, metricModeForEntry, me
 import { fmtNum, fmtDate, fmtVol, todayISO, weekKey } from '../lib/format.js'
 import { t, exerciseNameFor, getLang } from '../lib/i18n.js'
 import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor, MonthCalendar, cardioLogSheet } from '../sheets.jsx'
-import { cardioWeek, cardioDaysPlanned, cardioLine, cardioIcon } from '../lib/cardio.js'
+import { cardioWeek, cardioSessionsPlanned, cardioLine, cardioIcon } from '../lib/cardio.js'
 import LineChart from '../components/LineChart.jsx'
 import Heatmap from '../components/Heatmap.jsx'
 import Icon from '../components/Icon.jsx'
@@ -408,7 +408,7 @@ export default function Stats() {
         was not planned and the one you forgot. */}
     {(() => {
       const wk = cardioWeek(S, todayISO())
-      const planned = cardioDaysPlanned(S)
+      const planned = cardioSessionsPlanned(S)
       const recent = [...(S.cardioLog || [])].reverse().slice(0, 5)
       if (!planned && !recent.length) return null
       return <div className="card">
@@ -417,7 +417,7 @@ export default function Stats() {
           <Button size="sm" variant="tinted" icon="plus" onClick={() => cardioLogSheet()}>{t('Log')}</Button>
         </div>
         <div className="muted small" style={{ marginBottom: recent.length ? 10 : 0 }}>
-          {t('This week: {0} min', wk.min)}{planned ? ' · ' + t('{0} of {1} planned days', Math.min(wk.sessions, planned), planned) : wk.sessions ? ' · ' + t(wk.sessions === 1 ? '{0} session' : '{0} sessions', wk.sessions) : ''}
+          {t('This week: {0} min', wk.min)}{planned ? ' · ' + t('{0} of {1} planned sessions', Math.min(wk.sessions, planned), planned) : wk.sessions ? ' · ' + t(wk.sessions === 1 ? '{0} session' : '{0} sessions', wk.sessions) : ''}
         </div>
         {recent.length > 0 && <div className="list">{recent.map(c => <div key={c.id} className="item" onClick={() => cardioLogSheet({ entry: c })}>
           <span className="lrow-i" style={{ background: 'var(--teal)' }}><Icon name={cardioIcon(c.mod)} /></span>

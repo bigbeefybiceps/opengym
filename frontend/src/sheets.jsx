@@ -31,7 +31,7 @@ import { exerciseHistory } from './lib/exercise-history.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { ownExerciseRest, withExerciseRest, fmtRest } from './lib/supersetFlow.js'
 import LineChart from './components/LineChart.jsx'
-import { MODALITIES, CARDIO_NOTE_MAX, cleanCardio, cardioPlanFor, cardioLine, cardioIcon } from './lib/cardio.js'
+import { MODALITIES, CARDIO_NOTE_MAX, MAX_CARDIO_PER_DAY, cleanCardio, cardioSlots, cardioStillPlanned, setCardioSlot, removeCardioSlot, cardioLine, cardioIcon } from './lib/cardio.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -1156,14 +1156,16 @@ export const dayOverrideSheet = iso => ui().openSheet(close => <DayOverride iso=
 function DayAssign({ day, close }) {
   const st = useStore(s => s.S)
   const set = v => { update(s => { if (v) s.week[day] = v; else delete s.week[day] }); close() }
-  const cardio = cleanCardio((st.cardio || {})[day])
+  const cardio = cardioSlots(st, day)
   return <>
     <h3>{t(DAYN[day])}</h3>
-    {/* Cardio is planned for the day, not chosen instead of a routine, so it is a row of its
-        own above the list rather than one more option in it. */}
+    {/* Cardio is planned for the day, not chosen instead of a routine, so it has rows of its
+        own above the list rather than being one more option in it — as many as you do. */}
     <div className="sect-b" style={{ marginBottom: 12 }}>
-      <Row icon="figureRun" iconTint="var(--teal)" title={t('Cardio')} subtitle={cardio ? cardioLine(cardio) : t('None planned')}
-        accessory="chevron" onClick={() => cardioPlanSheet(day)} />
+      {cardio.map((c, i) => <Row key={i} icon={cardioIcon(c.mod)} iconTint="var(--teal)" title={cardio.length > 1 ? t('Cardio {0}', i + 1) : t('Cardio')}
+        subtitle={cardioLine(c)} accessory="chevron" onClick={() => cardioPlanSheet(day, i)} />)}
+      {cardio.length < MAX_CARDIO_PER_DAY && <Row icon="plus" iconTint="var(--teal)" title={cardio.length ? t('Add another cardio session') : t('Cardio')}
+        subtitle={cardio.length ? null : t('None planned')} accessory="chevron" onClick={() => cardioPlanSheet(day, null)} />}
     </div>
     <div className="list">
       <div className="item" onClick={() => set('')}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest day')}</div></div>{!st.week[day] && <Icon name="check" className="accent" />}</div>
@@ -1540,14 +1542,14 @@ function ModalityPicker({ value, onChange }) {
   </>
 }
 
-function CardioPlan({ day, close }) {
+// `index` edits one of the day's planned sessions; null adds another.
+function CardioPlan({ day, index, close }) {
   const st = useStore(s => s.S)
-  const cur = (st.cardio || {})[day]
+  const cur = index == null ? null : cardioSlots(st, day)[index] || null
   const [c, setC] = useState({ mod: cur?.mod || '', min: cur?.min || 20, note: cur?.note || '' })
   const save = () => {
-    const clean = cleanCardio(c)
-    if (!clean) { toast(t('Pick a type of cardio first')); return }
-    update(s => { s.cardio = s.cardio || {}; s.cardio[day] = clean })
+    if (!cleanCardio(c)) { toast(t('Pick a type of cardio first')); return }
+    update(s => { setCardioSlot(s, day, cur ? index : null, c) })
     close()
   }
   return <>
@@ -1562,16 +1564,17 @@ function CardioPlan({ day, close }) {
       onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
     <div style={{ height: 16 }} />
     <Button variant="primary" onClick={save}>{t('Save')}</Button>
-    {cur && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { update(s => { if (s.cardio) delete s.cardio[day] }); close() }}>{t('Remove cardio from {0}', t(DAYN[day]))}</Button></>}
+    {cur && <><div style={{ height: 8 }} /><Button variant="danger" onClick={() => { update(s => { removeCardioSlot(s, day, index) }); close() }}>{t('Remove this session')}</Button></>}
   </>
 }
-export const cardioPlanSheet = day => ui().openSheet(close => <CardioPlan day={day} close={close} />)
+export const cardioPlanSheet = (day, index = null) => ui().openSheet(close => <CardioPlan day={day} index={index} close={close} />)
 
 // `entry` edits one that is already logged; otherwise this logs a new one for `iso`,
 // starting from what the plan asked for that day so the usual case is a single tap on Save.
 function CardioLog({ iso, entry, close }) {
   const st = useStore(s => s.S)
-  const planned = cardioPlanFor(st, iso || todayISO())
+  // The next planned session not yet logged that day — the second tap logs the second one.
+  const planned = cardioStillPlanned(st, iso || todayISO())[0] || null
   const [d, setD] = useState(entry?.d || iso || todayISO())
   const [c, setC] = useState({ mod: entry?.mod || planned?.mod || '', min: entry?.min || planned?.min || 20, dist: entry?.dist || 0, note: entry?.note || '' })
   const save = () => {

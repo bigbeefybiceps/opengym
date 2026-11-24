@@ -9,7 +9,7 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf, DEFAULT_GLYPH } from '../lib/glyphs.js'
 import { planStatus, blockName, shiftWeeks, exNow, cancelDeload, skipEasyWeek } from '../lib/block-plan.js'
-import { cleanCardio, cardioIcon } from '../lib/cardio.js'
+import { cardioSlots, cardioIcon } from '../lib/cardio.js'
 
 export default function Plan() {
   const nav = useNavigate()
@@ -107,10 +107,11 @@ export default function Plan() {
       <div className="list" style={{ display: 'flex', flexDirection: 'column' }}>
         {[1, 2, 3, 4, 5, 6, 0].map(d => {
           const r = S.routines.find(x => x.id === S.week[d])
-          const cardio = cleanCardio((S.cardio || {})[d])
+          const cardio = cardioSlots(S, d)
           return <div key={d} className="item" onClick={() => dayAssignSheet(d)}>
             <div className="grow"><div className="tt">{t(DAYN[d])}</div></div>
-            {cardio && <span className="tag nocap" style={{ color: 'var(--teal)' }} title={cardio.mod}><Icon name={cardioIcon(cardio.mod)} />{cardio.min} min</span>}
+            {cardio.length > 0 && <span className="tag nocap" style={{ color: 'var(--teal)' }} title={cardio.map(c => c.mod).join(' + ')}>
+              <Icon name={cardioIcon(cardio[0].mod)} />{cardio.length > 1 ? cardio.length + '× · ' : ''}{cardio.reduce((n, c) => n + c.min, 0)} min</span>}
             {r ? <span className="tag acc"><Icon name={glyphOf(r.emoji)} />{r.name}</span> : <span className="tag">{t('Rest')}</span>}
             <Icon name="chevronRight" className="chev" /></div>
         })}

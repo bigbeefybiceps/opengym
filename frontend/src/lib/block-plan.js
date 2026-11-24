@@ -23,6 +23,12 @@ import { todayISO } from './format.js'
 import { planHost, routineStatus, pausedSplitOf } from './splits.js'
 
 const clone = o => JSON.parse(JSON.stringify(o))
+// Compare configs by content, not by the order their keys were written in. "Apply to all
+// blocks" adds a new field to the other blocks after their existing ones, while the edited
+// block's sheet writes it in its own order — the same prescription, spelled differently.
+const canon = v => Array.isArray(v) ? v.map(canon)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon(v[k])])) : v
+const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b))
 const dayMs = 86400000
 // Noon, not midnight: differencing local dates at midnight straddles DST shifts by an hour,
 // which floor() would turn into a whole day.
@@ -273,7 +279,7 @@ export function copyBlockList(s, r, fromId, toId) {
  */
 export function applyToAllBlocks(s, r, blockId, before, after) {
   const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})])
-  const changed = [...keys].filter(k => k !== 'id' && k !== 'sg' && JSON.stringify((before || {})[k]) !== JSON.stringify((after || {})[k]))
+  const changed = [...keys].filter(k => k !== 'id' && k !== 'sg' && !same((before || {})[k], (after || {})[k]))
   if (!changed.length) return 0
   let n = 0
   planOf(planHost(s, r)).blocks.forEach(b => {
@@ -294,7 +300,7 @@ export function differsFromFirst(S, r, blockId, cfg) {
   const base = exOf(r, first.id).find(e => e.id === cfg.id)
   if (!base) return true
   const strip = ({ sg, ...rest }) => rest
-  return JSON.stringify(strip(base)) !== JSON.stringify(strip(cfg))
+  return !same(strip(base), strip(cfg))
 }
 
 /* ------------------------------ what a week prescribes ------------------------------ */

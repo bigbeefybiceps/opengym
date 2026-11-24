@@ -9,13 +9,15 @@
 // the lifting session's duration stays the lifting session's, and reopening or discarding a
 // workout never touches it.
 //
-//   S.cardio    { [weekday 0-6]: { mod, min, note? } }        the plan
+//   S.cardio    { [weekday 0-6]: [{ mod, min, note? }, …] }   the plan — one or more a day
+//               (a single object is the older shape, still read as a list of one)
 //   S.cardioLog [{ id, d, mod, min, dist?, note? }]           what was done
 import { isoOf } from './format.js'
 
 export const MODALITIES = ['Incline walk', 'Treadmill run', 'Bike', 'Stair climber', 'Rower', 'Elliptical', 'Outdoor walk', 'Outdoor run', 'Swim']
 export const CARDIO_NOTE_MAX = 80
 export const MAX_CARDIO_MIN = 600
+export const MAX_CARDIO_PER_DAY = 4
 
 const weekdayOf = iso => new Date(iso + 'T12:00:00').getDay()
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
@@ -33,10 +35,38 @@ export function cleanCardio(c) {
   return out
 }
 
-/** What the plan asks for on the weekday of `iso`, or null. */
-export function cardioPlanFor(S, iso) {
-  const slot = S && S.cardio && S.cardio[weekdayOf(iso)]
-  return slot ? cleanCardio(slot) : null
+/** The sessions planned for weekday `day` (0-6), in order. Accepts the older single-slot shape. */
+export function cardioSlots(S, day) {
+  const raw = S && S.cardio && S.cardio[day]
+  return (Array.isArray(raw) ? raw : raw ? [raw] : []).map(cleanCardio).filter(Boolean)
+}
+/** Every session the plan asks for on the weekday of `iso`. */
+export const cardioPlansFor = (S, iso) => cardioSlots(S, weekdayOf(iso))
+/** The first session the plan asks for on the weekday of `iso`, or null. */
+export const cardioPlanFor = (S, iso) => cardioPlansFor(S, iso)[0] || null
+/**
+ * The planned sessions still to log on `iso`: one logged entry ticks off one planned session,
+ * whatever it turned out to be — the order they are planned in is the order they are ticked.
+ */
+export const cardioStillPlanned = (S, iso) => cardioPlansFor(S, iso).slice(cardioOn(S, iso).length)
+
+/** Add (index null) or replace a planned session on weekday `day`. Call inside store.update. */
+export function setCardioSlot(s, day, index, slot) {
+  const clean = cleanCardio(slot)
+  if (!clean) return false
+  const list = cardioSlots(s, day)
+  if (index == null || index >= list.length) { if (list.length >= MAX_CARDIO_PER_DAY) return false; list.push(clean) }
+  else list[index] = clean
+  s.cardio = s.cardio || {}
+  s.cardio[day] = list
+  return true
+}
+/** Remove one planned session from weekday `day`. */
+export function removeCardioSlot(s, day, index) {
+  const list = cardioSlots(s, day)
+  list.splice(index, 1)
+  s.cardio = s.cardio || {}
+  if (list.length) s.cardio[day] = list; else delete s.cardio[day]
 }
 
 /** Everything logged on one day, in the order it was logged. */
@@ -53,7 +83,9 @@ export function cardioWeek(S, iso) {
 }
 
 /** How many weekdays the plan puts cardio on. */
-export const cardioDaysPlanned = S => Object.values((S && S.cardio) || {}).filter(c => cleanCardio(c)).length
+export const cardioDaysPlanned = S => [0, 1, 2, 3, 4, 5, 6].filter(d => cardioSlots(S, d).length).length
+/** How many sessions a week the plan asks for. */
+export const cardioSessionsPlanned = S => [0, 1, 2, 3, 4, 5, 6].reduce((n, d) => n + cardioSlots(S, d).length, 0)
 
 /** "Incline walk · 20 min · zone 2" — one line for a slot or an entry. `unit` is km or mi. */
 export function cardioLine(c, unit) {

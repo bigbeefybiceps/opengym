@@ -60,3 +60,39 @@ describe('the cardio log', () => {
     expect(cardioWeek({}, '2026-11-16')).toEqual({ min: 0, sessions: 0 })
   })
 })
+
+import { cardioSlots, cardioPlansFor, cardioStillPlanned, setCardioSlot, removeCardioSlot, cardioSessionsPlanned, MAX_CARDIO_PER_DAY } from './cardio.js'
+
+describe('several cardio sessions in a day', () => {
+  // 2026-11-16 is a Monday.
+  it('adds, edits and removes sessions on one weekday; the old single shape still reads', () => {
+    const s = { cardio: { 1: { mod: 'Incline walk', min: 20 } }, cardioLog: [] }
+    expect(cardioSlots(s, 1)).toEqual([{ mod: 'Incline walk', min: 20 }])
+    expect(setCardioSlot(s, 1, null, { mod: 'Bike', min: 15 })).toBe(true)
+    expect(cardioPlansFor(s, '2026-11-16').map(c => c.mod)).toEqual(['Incline walk', 'Bike'])
+    setCardioSlot(s, 1, 0, { mod: 'Rower', min: 10 })
+    expect(cardioSlots(s, 1).map(c => c.mod)).toEqual(['Rower', 'Bike'])
+    expect(cardioSessionsPlanned(s)).toBe(2)
+    expect(cardioDaysPlanned(s)).toBe(1)
+    removeCardioSlot(s, 1, 0)
+    expect(cardioSlots(s, 1).map(c => c.mod)).toEqual(['Bike'])
+    removeCardioSlot(s, 1, 0)
+    expect(s.cardio[1]).toBeUndefined()
+  })
+
+  it('stops at the per-day limit and ignores an empty session', () => {
+    const s = {}
+    for (let i = 0; i < MAX_CARDIO_PER_DAY; i++) expect(setCardioSlot(s, 3, null, { mod: 'Bike', min: 10 })).toBe(true)
+    expect(setCardioSlot(s, 3, null, { mod: 'Bike', min: 10 })).toBe(false)
+    expect(setCardioSlot(s, 4, null, { mod: '', min: 10 })).toBe(false)
+  })
+
+  it('each logged entry ticks off the next planned session', () => {
+    const s = { cardio: { 1: [{ mod: 'Incline walk', min: 20 }, { mod: 'Bike', min: 15 }] }, cardioLog: [] }
+    expect(cardioStillPlanned(s, '2026-11-16').map(c => c.mod)).toEqual(['Incline walk', 'Bike'])
+    s.cardioLog.push({ id: 'a', d: '2026-11-16', mod: 'Incline walk', min: 22 })
+    expect(cardioStillPlanned(s, '2026-11-16').map(c => c.mod)).toEqual(['Bike'])
+    s.cardioLog.push({ id: 'b', d: '2026-11-16', mod: 'Bike', min: 15 })
+    expect(cardioStillPlanned(s, '2026-11-16')).toEqual([])
+  })
+})
