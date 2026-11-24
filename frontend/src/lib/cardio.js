@@ -11,7 +11,10 @@
 //
 //   S.cardio    { [weekday 0-6]: [{ mod, min, note? }, …] }   the plan — one or more a day
 //               (a single object is the older shape, still read as a list of one)
-//   S.cardioLog [{ id, d, mod, min, dist?, note? }]           what was done
+//   S.cardioLog [{ id, d, mod, min?, dist?, note? }]          what was done
+//
+// The minutes are optional: sprints, intervals or a hill session are planned and logged by
+// what they are, not by a clock. Only the kind of cardio is required.
 import { isoOf } from './format.js'
 
 export const MODALITIES = ['Incline walk', 'Treadmill run', 'Bike', 'Stair climber', 'Rower', 'Elliptical', 'Outdoor walk', 'Outdoor run', 'Swim']
@@ -25,9 +28,10 @@ const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 /** A plan slot or log entry with nothing in it that the app did not put there. */
 export function cleanCardio(c) {
   const mod = text(c && c.mod, 40)
-  const min = Math.min(MAX_CARDIO_MIN, Math.round(Number(c && c.min)) || 0)
-  if (!mod || min < 1) return null
-  const out = { mod, min }
+  if (!mod) return null
+  const min = Math.max(0, Math.min(MAX_CARDIO_MIN, Math.round(Number(c.min)) || 0))
+  const out = { mod }
+  if (min > 0) out.min = min
   const dist = Math.round((Number(c.dist) || 0) * 100) / 100
   if (dist > 0) out.dist = Math.min(999, dist)
   const note = text(c.note, CARDIO_NOTE_MAX)
@@ -90,7 +94,7 @@ export const cardioSessionsPlanned = S => [0, 1, 2, 3, 4, 5, 6].reduce((n, d) =>
 /** "Incline walk · 20 min · zone 2" — one line for a slot or an entry. `unit` is km or mi. */
 export function cardioLine(c, unit) {
   if (!c) return ''
-  return [c.mod, c.min + ' min', c.dist > 0 ? c.dist + ' ' + (unit || 'km') : null, c.note || null].filter(Boolean).join(' · ')
+  return [c.mod, c.min > 0 ? c.min + ' min' : null, c.dist > 0 ? c.dist + ' ' + (unit || 'km') : null, c.note || null].filter(Boolean).join(' · ')
 }
 
 /** Which icon reads as this modality. */

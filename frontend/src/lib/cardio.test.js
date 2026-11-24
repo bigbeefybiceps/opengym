@@ -28,8 +28,8 @@ describe('planned cardio', () => {
 })
 
 describe('cleaning what comes in', () => {
-  it('needs a modality and some minutes', () => {
-    expect(cleanCardio({ mod: 'Bike', min: 0 })).toBe(null)
+  it('needs a modality; minutes are optional', () => {
+    expect(cleanCardio({ mod: 'Bike', min: 0 })).toEqual({ mod: 'Bike' })
     expect(cleanCardio({ mod: '  ', min: 20 })).toBe(null)
     expect(cleanCardio(null)).toBe(null)
   })
@@ -93,6 +93,24 @@ describe('several cardio sessions in a day', () => {
     s.cardioLog.push({ id: 'a', d: '2026-11-16', mod: 'Incline walk', min: 22 })
     expect(cardioStillPlanned(s, '2026-11-16').map(c => c.mod)).toEqual(['Bike'])
     s.cardioLog.push({ id: 'b', d: '2026-11-16', mod: 'Bike', min: 15 })
+    expect(cardioStillPlanned(s, '2026-11-16')).toEqual([])
+  })
+})
+
+describe('cardio without a duration', () => {
+  it('keeps a named session with no minutes, and still needs a name', () => {
+    expect(cleanCardio({ mod: 'Sprints', min: 0 })).toEqual({ mod: 'Sprints' })
+    expect(cleanCardio({ mod: 'Sprints' })).toEqual({ mod: 'Sprints' })
+    expect(cleanCardio({ mod: 'Sprints', min: -5, note: '8 × 40 m' })).toEqual({ mod: 'Sprints', note: '8 × 40 m' })
+    expect(cleanCardio({ mod: '', min: 0 })).toBe(null)
+    expect(cardioLine({ mod: 'Sprints', note: '8 × 40 m' })).toBe('Sprints · 8 × 40 m')
+  })
+  it('can be planned and logged, and counts as a session with no minutes', () => {
+    const s = { cardioLog: [] }
+    expect(setCardioSlot(s, 1, null, { mod: 'Sprints', min: 0 })).toBe(true)
+    expect(cardioSlots(s, 1)).toEqual([{ mod: 'Sprints' }])
+    s.cardioLog.push({ id: 'a', d: '2026-11-16', ...cleanCardio({ mod: 'Sprints', min: 0 }) })
+    expect(cardioWeek(s, '2026-11-16')).toEqual({ min: 0, sessions: 1 })
     expect(cardioStillPlanned(s, '2026-11-16')).toEqual([])
   })
 })

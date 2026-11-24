@@ -1546,7 +1546,8 @@ function ModalityPicker({ value, onChange }) {
 function CardioPlan({ day, index, close }) {
   const st = useStore(s => s.S)
   const cur = index == null ? null : cardioSlots(st, day)[index] || null
-  const [c, setC] = useState({ mod: cur?.mod || '', min: cur?.min || 20, note: cur?.note || '' })
+  // A saved session keeps its minutes as they are, none included; only a new one starts at 20.
+  const [c, setC] = useState({ mod: cur?.mod || '', min: cur ? cur.min || 0 : 20, note: cur?.note || '' })
   const save = () => {
     if (!cleanCardio(c)) { toast(t('Pick a type of cardio first')); return }
     update(s => { setCardioSlot(s, day, cur ? index : null, c) })
@@ -1576,7 +1577,7 @@ function CardioLog({ iso, entry, close }) {
   // The next planned session not yet logged that day — the second tap logs the second one.
   const planned = cardioStillPlanned(st, iso || todayISO())[0] || null
   const [d, setD] = useState(entry?.d || iso || todayISO())
-  const [c, setC] = useState({ mod: entry?.mod || planned?.mod || '', min: entry?.min || planned?.min || 20, dist: entry?.dist || 0, note: entry?.note || '' })
+  const [c, setC] = useState({ mod: entry?.mod || planned?.mod || '', min: entry ? entry.min || 0 : planned ? planned.min || 0 : 20, dist: entry?.dist || 0, note: entry?.note || '' })
   const save = () => {
     const clean = cleanCardio(c)
     if (!clean) { toast(t('Pick a type of cardio first')); return }
