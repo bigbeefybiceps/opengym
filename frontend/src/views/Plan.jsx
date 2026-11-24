@@ -108,16 +108,16 @@ export default function Plan() {
         {[1, 2, 3, 4, 5, 6, 0].map(d => {
           const r = S.routines.find(x => x.id === S.week[d])
           const cardio = cardioSlots(S, d)
-          return <div key={d} className="item" onClick={() => dayAssignSheet(d)}>
+          return <div key={d} className="item wk-row" onClick={() => dayAssignSheet(d)}>
             <div className="grow"><div className="tt">{t(DAYN[d])}</div></div>
-            {cardio.length > 0 && <span className="tag nocap" style={{ color: 'var(--teal)' }} title={cardio.map(c => c.mod).join(' + ')}>
-              <Icon name={cardioIcon(cardio[0].mod)} />{(() => {
+            {cardio.length > 0 && <span className="tag nocap wk-cardio" style={{ color: 'var(--teal)' }} title={cardio.map(c => c.mod).join(' + ')}>
+              <Icon name={cardioIcon(cardio[0].mod)} /><span>{(() => {
                 // Minutes when any were planned; otherwise the session itself ("Sprints").
                 const total = cardio.reduce((n, c) => n + (c.min || 0), 0)
                 const what = total > 0 ? total + ' min' : cardio.length > 1 ? t('cardio') : cardio[0].mod
                 return (cardio.length > 1 ? cardio.length + '× · ' : '') + what
-              })()}</span>}
-            {r ? <span className="tag acc"><Icon name={glyphOf(r.emoji)} />{r.name}</span> : <span className="tag">{t('Rest')}</span>}
+              })()}</span></span>}
+            {r ? <span className="tag acc" title={r.name}><Icon name={glyphOf(r.emoji)} /><span>{r.name}</span></span> : <span className="tag">{t('Rest')}</span>}
             <Icon name="chevronRight" className="chev" /></div>
         })}
       </div>

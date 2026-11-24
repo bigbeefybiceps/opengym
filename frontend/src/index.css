@@ -420,6 +420,14 @@ h4.sec{
   font-weight:500;text-transform:capitalize;
 }
 .tag.acc{background:var(--acc-soft);color:var(--acc)}
+/* Week schedule rows: the day name keeps its full width, and a long routine or cardio name
+   is cut off with an ellipsis instead of pushing over it. */
+.wk-row .grow{flex:1 0 auto}
+/* The cardio tag gives way first; the routine (or Rest) tag keeps its width, up to a cap. */
+.wk-row .tag{flex:none;max-width:45%;min-width:0;overflow:hidden;white-space:nowrap}
+.wk-row .tag.wk-cardio{flex:0 1 auto;max-width:none}
+.wk-row .tag>svg{flex:none}
+.wk-row .tag>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------------------------------------------------------------- chips -- */
 .chips{
